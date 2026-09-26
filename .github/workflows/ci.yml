@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Nightly formatting
+        run: |
+          rustup toolchain install nightly --profile minimal --component rustfmt
+          cargo +nightly fmt --all --check
+
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libgl1-mesa-dev
+      - name: Stable toolchain
+        run: rustup update stable --no-self-update
+      - name: Default CLI
+        run: cargo +stable test --locked --no-default-features
+      - name: TUI build
+        run: cargo +stable check --locked --features tui --all-targets
+      - name: Desktop build
+        run: cargo +stable check --locked --features desktop --all-targets
+      - name: All features
+        run: cargo +stable test --locked --all-features
+      - name: Clippy (default)
+        run: cargo +stable clippy --locked --no-default-features --all-targets -- -D warnings
+      - name: Clippy (all features)
+        run: cargo +stable clippy --locked --all-features --all-targets -- -D warnings
+      - name: API documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo +stable doc --locked --all-features --no-deps
+      - name: Package verification
+        run: cargo +stable package --locked
+
+  required:
+    name: required
+    if: always()
+    needs: [format, test, msrv]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All checks passed
+        env:
+          FORMAT: ${{ needs.format.result }}
+          TEST: ${{ needs.test.result }}
+          MSRV: ${{ needs.msrv.result }}
+        run: test "$FORMAT" = success && test "$TEST" = success && test "$MSRV" = success
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libgl1-mesa-dev
+      - run: rustup toolchain install 1.96 --profile minimal
+      - run: cargo +1.96 check --locked --all-features --all-targets
