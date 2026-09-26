@@ -91,12 +91,23 @@ impl Desktop {
         }
         ui.ctx().request_repaint_after(Duration::from_millis(100));
         egui::CentralPanel::default().frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(24)).show(ui, |ui| {
+            let mut selected_language = language;
             ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.heading(RichText::new("gitwatch").size(28.0));
-                    ui.weak(language.text("Keep a history of your work."));
+                ui.heading(RichText::new("gitwatch").size(28.0));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_enabled_ui(!self.model.busy, |ui| {
+                        egui::ComboBox::from_id_salt("language")
+                            .selected_text(language.name())
+                            .show_ui(ui, |ui| {
+                                for choice in [Language::English, Language::Chinese] {
+                                    ui.selectable_value(&mut selected_language, choice, choice.name());
+                                }
+                            });
+                    });
                 });
             });
+            ui.weak(language.text("Keep a history of your work."));
+            if selected_language != language { self.model.set_language(selected_language); }
             ui.add_space(10.0);
             ui.horizontal_wrapped(|ui| {
                     if ui.button(language.text("Backup settings")).clicked() { self.settings = !self.settings; }
@@ -114,17 +125,6 @@ impl Desktop {
                     });
                 });
             }
-            let mut selected_language = language;
-            ui.add_enabled_ui(!self.model.busy, |ui| {
-                egui::ComboBox::from_id_salt("language")
-                    .selected_text(language.name())
-                    .show_ui(ui, |ui| {
-                        for choice in [Language::English, Language::Chinese] {
-                            ui.selectable_value(&mut selected_language, choice, choice.name());
-                        }
-                    });
-            });
-            if selected_language != language { self.model.set_language(selected_language); }
             if self.model.busy { ui.horizontal(|ui| { ui.spinner(); ui.label(language.text("Working in background…")); }); }
             if let Some(error) = &self.model.error { ui.colored_label(Color32::LIGHT_RED, language.error(error)); }
             if self.settings { self.settings(ui); ui.separator(); }
