@@ -13,6 +13,7 @@ use uuid::Uuid;
 use crate::{
     Result,
     git::Lock,
+    i18n::{Language, Text},
     paths,
     pull::{PullOptions, PullTask},
     watch::{self, Event, MonitorOptions, Repository, StopToken, WatchOptions},
@@ -45,7 +46,7 @@ pub(crate) struct Draft {
 pub(crate) struct Row {
     pub draft: Draft,
     pub running: bool,
-    pub status: String,
+    pub status: Text,
 }
 
 pub(crate) enum Command {
@@ -68,21 +69,23 @@ pub(crate) enum Command {
 
 enum Message {
     Rows(Vec<Row>),
-    Status(Uuid, String),
+    Status(Uuid, Text),
     History(Vec<HistoryEntry>),
     Branches(Vec<RemoteWorkspace>),
     Preview(RestorePlan),
-    Text(String),
-    Done(Result<String>),
+    Text(Text),
+    Done(Result<Text>),
 }
 
 pub(crate) struct Model {
+    pub language: Language,
+    directory: Option<PathBuf>,
     pub rows: Vec<Row>,
     pub history: Vec<HistoryEntry>,
     pub branches: Vec<RemoteWorkspace>,
     pub plan: Option<RestorePlan>,
-    pub text: String,
-    pub logs: VecDeque<String>,
+    pub text: Text,
+    pub logs: VecDeque<Text>,
     pub busy: bool,
     pub error: Option<String>,
     sender: Sender<Command>,
@@ -95,7 +98,17 @@ struct Worker {
     store: BackupStore,
     sender: Sender<Message>,
     active: HashMap<Uuid, (StopToken, JoinHandle<()>)>,
-    states: HashMap<Uuid, String>,
+    states: HashMap<Uuid, Text>,
+}
+
+impl Kind {
+    pub fn label(self, language: Language) -> &'static str {
+        language.text(match self {
+            Self::Workspace => "Workspace backup",
+            Self::Watch => "Git watch",
+            Self::Pull => "Scheduled pull",
+        })
+    }
 }
 
 // ===== impl Draft =====
@@ -167,7 +180,15 @@ impl Draft {
 // ===== impl Model =====
 
 impl Model {
+    #[cfg(test)]
     pub fn new(data: Option<PathBuf>) -> Self {
+        Self::with_language(data, Language::English)
+    }
+
+    pub fn with_language(data: Option<PathBuf>, language: Language) -> Self {
+        let directory = data
+            .clone()
+            .or_else(|| BackupStore::default_directory().ok());
         let (sender, commands) = mpsc::channel();
         let (messages, receiver) = mpsc::channel();
         let stop = StopToken::default();
@@ -210,7 +231,9 @@ impl Model {
             history: Vec::new(),
             branches: Vec::new(),
             plan: None,
-            text: String::new(),
+            text: Text::default(),
+            language,
+            directory,
             logs: VecDeque::new(),
             busy: true,
             error: None,
@@ -238,7 +261,7 @@ impl Model {
                 Message::Rows(mut rows) => {
                     for row in &mut rows {
                         if row.running
-                            && row.status == "Running"
+                            && row.status == Text::from("Running")
                             && let Some(previous) = self
                                 .rows
                                 .iter()
@@ -264,16 +287,16 @@ impl Model {
                     if let Some(row) = self.rows.iter_mut().find(|r| r.draft.id == Some(id)) {
                         row.status = text.clone();
                     }
-                    self.log(format!("{id}: {text}"));
+                    self.log(Text::format("{0}: {1}", [Text::value(id), text]));
                 }
                 Message::Done(result) => {
                     self.busy = false;
                     match result {
                         Ok(text) => self.log(text),
                         Err(error) => {
-                            let text = error.to_string();
+                            let text = format!("{error:#}");
                             self.error = Some(text.clone());
-                            self.log(text);
+                            self.log(Text::Error(text));
                         }
                     }
                 }
@@ -281,7 +304,19 @@ impl Model {
         }
     }
 
-    fn log(&mut self, text: String) {
+    pub fn set_language(&mut self, language: Language) {
+        let result = self
+            .directory
+            .as_deref()
+            .context("Cannot locate user data directory")
+            .and_then(|directory| language.save(directory));
+        match result {
+            Ok(()) => self.language = language,
+            Err(error) => self.error = Some(format!("{error:#}")),
+        }
+    }
+
+    fn log(&mut self, text: Text) {
         self.logs.push_back(text);
         while self.logs.len() > 200 {
             self.logs.pop_front();
@@ -368,7 +403,7 @@ impl Worker {
         let _ = self.refresh();
     }
 
-    fn command(&mut self, command: Command) -> Result<String> {
+    fn command(&mut self, command: Command) -> Result<Text> {
         match command {
             Command::Refresh => self.refresh()?,
             Command::Save(mut draft) => {
@@ -484,20 +519,27 @@ impl Worker {
                                 PullTask::new(draft.pull_options()?)?.run(token, |result| {
                                     let text = result
                                         .map(|r| {
-                                            format!(
-                                                "{} at {}",
-                                                if r.changed() { "Updated" } else { "Unchanged" },
-                                                r.after()
+                                            Text::format(
+                                                "{0} at {1}",
+                                                [
+                                                    if r.changed() {
+                                                        "Updated"
+                                                    } else {
+                                                        "Unchanged"
+                                                    }
+                                                    .into(),
+                                                    Text::value(r.after()),
+                                                ],
                                             )
                                         })
-                                        .unwrap_or_else(|e| e.to_string());
+                                        .unwrap_or_else(|e| Text::Error(e.to_string()));
                                     let _ = sender.send(Message::Status(id, text));
                                 })
                             }
                         }
                     })();
                     if let Err(error) = result {
-                        let _ = sender.send(Message::Status(id, error.to_string()));
+                        let _ = sender.send(Message::Status(id, Text::Error(error.to_string())));
                     }
                 });
                 self.active.insert(id, (stop, handle));
@@ -534,7 +576,7 @@ impl Worker {
                     )),
                     Kind::Pull => {
                         let report = PullTask::new(draft.pull_options()?)?.update()?;
-                        format!("Updated to {}", report.after())
+                        Text::format("Updated to {0}", [Text::value(report.after())])
                     }
                 };
                 self.states.insert(id, text.clone());
@@ -564,7 +606,7 @@ impl Worker {
             Command::Diff(id, from, to) => {
                 let _ = self
                     .sender
-                    .send(Message::Text(self.store.diff(id, &from, &to)?));
+                    .send(Message::Text(Text::value(self.store.diff(id, &from, &to)?)));
             }
             Command::Preview(id, revision, selected) => {
                 ensure!(
@@ -577,13 +619,15 @@ impl Worker {
             }
             Command::Contents(plan, path) => {
                 let (before, after) = self.store.restore_contents(plan, &path)?;
-                let text = format!(
-                    "--- Current ---\n{}\n--- Selected ---\n{}",
-                    before
-                        .as_deref()
-                        .map(display_bytes)
-                        .unwrap_or("(missing)".into()),
-                    display_bytes(&after)
+                let text = Text::format(
+                    "--- Current ---\n{0}\n--- Selected ---\n{1}",
+                    [
+                        before
+                            .as_deref()
+                            .map(display_bytes)
+                            .unwrap_or("(missing)".into()),
+                        display_bytes(&after),
+                    ],
                 );
                 let _ = self.sender.send(Message::Text(text));
             }
@@ -594,10 +638,12 @@ impl Worker {
                     "Stop the task before restoring"
                 );
                 let report = self.store.apply_restore(id)?;
-                let text = format!(
-                    "Restored {} files. Recovery: {}",
-                    report.written().len(),
-                    report.recovery().display()
+                let text = Text::format(
+                    "Restored {0} files. Recovery: {1}",
+                    [
+                        Text::value(report.written().len()),
+                        Text::value(report.recovery().display()),
+                    ],
                 );
                 ensure!(
                     report.error().is_none(),
@@ -640,34 +686,66 @@ fn seconds(text: &str) -> Result<Duration> {
     Ok(duration)
 }
 
-pub(crate) fn display_bytes(bytes: &[u8]) -> String {
+pub(crate) fn display_bytes(bytes: &[u8]) -> Text {
     match std::str::from_utf8(bytes) {
-        Ok(text) if !text.contains('\0') => text.to_owned(),
-        _ => format!("(binary file, {} bytes)", bytes.len()),
+        Ok(text) if !text.contains('\0') => Text::value(text),
+        _ => Text::format("(binary file, {0} bytes)", [Text::value(bytes.len())]),
     }
 }
 
-fn event_text(event: Event) -> String {
+pub(crate) fn upload_text(upload: &crate::workspace::UploadState) -> Text {
+    use crate::workspace::UploadState;
+    match upload {
+        UploadState::Disabled => "Disabled".into(),
+        UploadState::Pending => "Pending".into(),
+        UploadState::Synced => "Synced".into(),
+        UploadState::Failed { message } => {
+            Text::format("Failed: {0}", [Text::Error(message.clone())])
+        }
+    }
+}
+
+fn event_text(event: Event) -> Text {
     match event {
-        Event::Watching(source) => format!("Watching: {source}"),
+        Event::Watching(source) => Text::format(
+            "Watching: {0}",
+            [match source.as_str() {
+                "content polling" => "content polling".into(),
+                "native events with periodic content checks" => {
+                    "native events with periodic content checks".into()
+                }
+                _ => Text::value(source),
+            }],
+        ),
         Event::Pending => "Changes pending".into(),
-        Event::Repository(report) => format!(
-            "Local: {}; upload: {:?}{}",
-            report.commit().unwrap_or("unchanged"),
-            report.upload(),
-            report
-                .skipped()
-                .map(|s| format!("; skipped: {s}"))
-                .unwrap_or_default()
+        Event::Repository(report) => {
+            let status = Text::format(
+                "Local: {0}; upload: {1}",
+                [
+                    report
+                        .commit()
+                        .map(Text::value)
+                        .unwrap_or("unchanged".into()),
+                    upload_text(report.upload()),
+                ],
+            );
+            match report.skipped() {
+                Some(reason) => {
+                    Text::format("{0}; skipped: {1}", [status, Text::Error(reason.into())])
+                }
+                None => status,
+            }
+        }
+        Event::Backup(report) => Text::format(
+            "Local: {0}; {1} files; upload: {2}",
+            [
+                Text::value(report.commit()),
+                Text::value(report.files()),
+                upload_text(report.upload()),
+            ],
         ),
-        Event::Backup(report) => format!(
-            "Local: {}; {} files; upload: {:?}",
-            report.commit(),
-            report.files(),
-            report.upload()
-        ),
-        Event::Upload(upload) => format!("Upload: {upload:?}"),
-        Event::Error(error) => error,
+        Event::Upload(upload) => Text::format("Upload: {0}", [upload_text(&upload)]),
+        Event::Error(error) => Text::Error(error),
         Event::Stopped => "Stopped".into(),
     }
 }
@@ -719,7 +797,10 @@ mod tests {
         command(&mut model, Command::Preview(id, commit.clone(), vec![]));
         let plan = model.plan.as_ref().unwrap().id();
         command(&mut model, Command::Contents(plan, "notes.md".into()));
-        assert!(model.text.contains("first") && model.text.contains("second"));
+        assert!(
+            model.text.render(Language::English).contains("first")
+                && model.text.render(Language::English).contains("second")
+        );
         fs::write(source.join("notes.md"), "third").unwrap();
         model.send(Command::Restore(plan));
         wait(&mut model);

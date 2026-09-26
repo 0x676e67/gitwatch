@@ -1,0 +1,10 @@
+Gitwatch Sans SC Regular is a subset of Noto Sans SC, licensed under the
+SIL Open Font License 1.1. See OFL.txt for the copyright and license.
+
+Source: https://github.com/google/fonts/tree/main/ofl/notosanssc
+Original file: NotoSansSC[wght].ttf
+Git blob: fb0637bafbcd804fe32152370a1225990745b4bc
+
+This subset uses weight 400 and includes GB2312 characters, ASCII,
+general punctuation and fullwidth forms. The font was renamed when subsetted.
+It is embedded only in the desktop binary.

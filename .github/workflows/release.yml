@@ -108,6 +108,7 @@ jobs:
           windows = os.environ['RUNNER_OS'] == 'Windows'
           suffix = '.exe' if windows else ''
           files = [pathlib.Path('LICENSE'), pathlib.Path('README.md')]
+          files += [pathlib.Path('assets/fonts', file) for file in ['OFL.txt', 'NOTICE']]
           files += [pathlib.Path('target', target, 'release', binary + suffix)
                     for binary in ['gitwatch', 'gitwatch-desktop']]
           pathlib.Path('dist').mkdir()
