@@ -331,8 +331,10 @@ fn run_localized(args: Vec<std::ffi::OsString>, language: Language) -> Result<()
         }
         Some(Action::Watch(args)) => direct(args, cli.json, cli.verbose, language),
         Some(Action::Workspace { command }) => {
-            let store =
-                BackupStore::open(cli.data_dir.unwrap_or(BackupStore::default_directory()?))?;
+            let directory = cli
+                .data_dir
+                .map_or_else(BackupStore::default_directory, Ok)?;
+            let store = BackupStore::open(directory)?;
             workspace_command(store, command, cli.json, cli.verbose, language)
         }
         Some(Action::Tui) => {

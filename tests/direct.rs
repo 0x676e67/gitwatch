@@ -91,6 +91,86 @@ fn directory_scope_handles_new_files_deletions_and_literal_names() {
 }
 
 #[test]
+fn polling_distinguishes_paths_missing_files_and_file_modes() {
+    let temp = repository();
+    let root = temp.path();
+    let notes = root.join("notes");
+    fs::create_dir(&notes).unwrap();
+    let watcher = Repository::open(&notes, None, WatchOptions::default()).unwrap();
+    fs::write(notes.join("a"), "bc").unwrap();
+    let before = watcher.fingerprint().unwrap();
+    fs::remove_file(notes.join("a")).unwrap();
+    fs::write(notes.join("ab"), "c").unwrap();
+    assert_ne!(before, watcher.fingerprint().unwrap());
+
+    fs::write(root.join("watched.md"), "missing").unwrap();
+    let watcher = Repository::open(root.join("watched.md"), None, WatchOptions::default()).unwrap();
+    let before = watcher.fingerprint().unwrap();
+    fs::remove_file(root.join("watched.md")).unwrap();
+    assert_ne!(before, watcher.fingerprint().unwrap());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::write(root.join("watched.md"), "script").unwrap();
+        fs::set_permissions(root.join("watched.md"), fs::Permissions::from_mode(0o644)).unwrap();
+        let before = watcher.fingerprint().unwrap();
+        fs::set_permissions(root.join("watched.md"), fs::Permissions::from_mode(0o755)).unwrap();
+        assert_ne!(before, watcher.fingerprint().unwrap());
+    }
+}
+
+#[test]
+fn polling_retries_deferred_commits_after_a_git_operation_finishes() {
+    let temp = repository();
+    let root = temp.path();
+    let watcher = Repository::open(root.join("watched.md"), None, WatchOptions::default()).unwrap();
+    let options = MonitorOptions::default()
+        .native(false)
+        .poll_interval(Duration::from_millis(50))
+        .debounce(Duration::ZERO);
+    let stop = StopToken::default();
+    let token = stop.clone();
+    let (tx, rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        watch::watch_repository(watcher, options, token, |event| {
+            let _ = tx.send(event);
+        })
+    });
+    assert!(matches!(
+        rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        Event::Watching(_)
+    ));
+    fs::write(
+        root.join(".git/MERGE_HEAD"),
+        git(root, &["rev-parse", "HEAD"]),
+    )
+    .unwrap();
+    fs::write(root.join("watched.md"), "deferred").unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(12);
+    let mut deferred = false;
+    let mut committed = false;
+    while std::time::Instant::now() < deadline {
+        if let Ok(Event::Repository(report)) = rx.recv_timeout(Duration::from_millis(200)) {
+            if report.skipped().is_some() && !deferred {
+                deferred = true;
+                fs::remove_file(root.join(".git/MERGE_HEAD")).unwrap();
+            }
+            if report.commit().is_some() {
+                committed = true;
+                break;
+            }
+        }
+    }
+    stop.stop();
+    worker.join().unwrap().unwrap();
+    assert!(
+        deferred && committed,
+        "deferred={deferred}, committed={committed}"
+    );
+    assert_eq!(git(root, &["show", "HEAD:watched.md"]), "deferred");
+}
+
+#[test]
 fn branch_changes_and_repository_operations_stop_automatic_commits() {
     let temp = repository();
     let root = temp.path();

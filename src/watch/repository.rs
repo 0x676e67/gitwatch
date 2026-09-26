@@ -378,13 +378,22 @@ impl Repository {
             {
                 continue;
             }
+            hash.update((relative.len() as u64).to_le_bytes());
             hash.update(relative);
             let path = self.root.join(os_path(relative)?);
             match fs::symlink_metadata(&path) {
                 Ok(metadata) if metadata.file_type().is_symlink() => {
+                    hash.update(b"symlink\0");
                     hash.update(fs::read_link(&path)?.as_os_str().as_encoded_bytes());
                 }
                 Ok(metadata) if metadata.is_file() => {
+                    hash.update(b"file\0");
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        hash.update((metadata.permissions().mode() & 0o111).to_le_bytes());
+                    }
+                    hash.update(metadata.len().to_le_bytes());
                     let mut file = fs::File::open(&path)?;
                     let mut buffer = [0; 64 * 1024];
                     loop {
@@ -396,6 +405,7 @@ impl Repository {
                     }
                 }
                 Ok(metadata) if metadata.is_dir() => {
+                    hash.update(b"gitlink\0");
                     // A gitlink is one selected entry, never a recursive source tree.
                     let mut command = git::base_command();
                     command.current_dir(&path).args(["rev-parse", "HEAD"]);
