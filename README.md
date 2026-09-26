@@ -8,22 +8,17 @@ You can use it to keep a history of your notes, back up files from several proje
 - `workspace` copies selected files into a separate backup repository, with one branch per workspace. It doesn't stage or commit anything in your source projects.
 - `pull` keeps a local checkout up to date, cloning it first if needed.
 
-## Build and run
+## Install and run
 
-The first release isn't on crates.io yet. You'll need Git and Rust 1.96 or newer to install from source:
-
-```sh
-git clone https://github.com/0x676e67/gitwatch.git
-cd gitwatch
-```
-
-Choose the interfaces you need:
+Install Git and Rust 1.96 or newer, then choose the interfaces you need:
 
 ```sh
-cargo install --path . --locked                     # CLI
-cargo install --path . --locked --features tui      # CLI + terminal interface
-cargo install --path . --locked --all-features      # CLI + TUI + desktop
+cargo install gitwatch --locked                     # CLI
+cargo install gitwatch --locked --features tui      # CLI + terminal interface
+cargo install gitwatch --locked --all-features      # CLI + TUI + desktop
 ```
+
+To build from source, clone this repository and replace `gitwatch` in the install command with `--path .`.
 
 Then run `gitwatch --help`, or open an interface you included in the build:
 

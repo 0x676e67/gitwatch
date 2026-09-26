@@ -169,7 +169,6 @@ jobs:
         if: steps.registry.outputs.published != 'true'
         run: cargo +stable publish --locked --dry-run
       - name: Authenticate with crates.io
-        if: steps.registry.outputs.published != 'true'
         id: auth
         uses: rust-lang/crates-io-auth-action@v1
       - name: Publish crate
