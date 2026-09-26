@@ -30,6 +30,27 @@ gitwatch desktop
 
 On Linux, building the desktop app also needs the development packages for X11/Wayland, OpenGL and xkbcommon. See the Ubuntu package list in the [CI workflow](.github/workflows/ci.yml). The CLI build doesn't need these desktop dependencies.
 
+## Update or uninstall
+
+The commands below are available in the source build and the next release; v0.1.0 does not include them.
+
+```sh
+gitwatch self update --check
+gitwatch self update
+gitwatch self update --version 0.2.0
+gitwatch self uninstall
+```
+
+For an installation extracted from an official [GitHub Release](https://github.com/0x676e67/gitwatch/releases), keep `gitwatch-install.json` beside the programs. The updater verifies the download, checks that the new programs can start, then replaces the installed CLI and desktop together. A standalone CLI can also update itself. Updating uses the official build, including TUI support; it does not preserve custom Cargo feature selections or add a desktop program to a CLI-only installation. Older release folders without an installation receipt need a fresh download first.
+
+Stop other gitwatch processes before updating or uninstalling. Both commands list the affected programs and ask for confirmation; use `--yes` in scripts. Uninstall keeps your settings, backup history, recovery data and license notices. For Cargo installations, use `cargo install gitwatch --locked --force` with your original feature options, or `cargo uninstall gitwatch`. Other package-managed installations should use their package manager.
+
+If an update is interrupted, run `gitwatch self update --recover`. The `.gitwatch-recovery` folder beside the executable holds the previous programs until the operation finishes. If the CLI itself is missing, copy its saved binary back to the installation directory, then run recovery. Updates never downgrade automatically.
+
+The desktop and TUI show a notice when a newer stable version is available. Interactive CLI sessions print the update command to stderr. Checks run in the background, are cached for a day and never install anything automatically. Network failures leave your tasks running. Set `GITWATCH_NO_UPDATE_CHECK=1` to disable automatic checks; `self update --check` still works. JSON and redirected CLI output stay free of automatic notices.
+
+The desktop uses one built-in dark theme with consistent spacing and task status colors.
+
 ## Watch an existing repository
 
 Point gitwatch at a file or directory inside a Git repository:

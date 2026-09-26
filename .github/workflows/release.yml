@@ -100,6 +100,8 @@ jobs:
         run: |
           import os
           import pathlib
+          import hashlib
+          import json
           import tarfile
           import zipfile
 
@@ -111,6 +113,14 @@ jobs:
           files += [pathlib.Path('assets/fonts', file) for file in ['OFL.txt', 'NOTICE']]
           files += [pathlib.Path('target', target, 'release', binary + suffix)
                     for binary in ['gitwatch', 'gitwatch-desktop']]
+          receipt = pathlib.Path('gitwatch-install.json')
+          receipt.write_text(json.dumps({
+              'version': os.environ['RELEASE_TAG'].removeprefix('v'),
+              'target': target,
+              'files': {file.name: hashlib.sha256(file.read_bytes()).hexdigest()
+                        for file in files if file.name in ['gitwatch' + suffix, 'gitwatch-desktop' + suffix]}
+          }, indent=2), encoding='utf-8')
+          files.append(receipt)
           pathlib.Path('dist').mkdir()
           if windows:
               with zipfile.ZipFile(f'dist/{name}.zip', 'w', zipfile.ZIP_DEFLATED) as archive:

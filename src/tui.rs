@@ -98,7 +98,20 @@ impl Screen {
         .areas(frame.area());
         frame.render_widget(
             Paragraph::new(
-                language.text("gitwatch  /  Workspaces · Repository watch · Scheduled pull"),
+                self.model
+                    .update
+                    .as_ref()
+                    .map(|release| {
+                        language.format(
+                            "gitwatch {0} is available. Run gitwatch self update.",
+                            &[release.version()],
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        language
+                            .text("gitwatch  /  Workspaces · Repository watch · Scheduled pull")
+                            .into()
+                    }),
             )
             .block(Block::bordered())
             .style(Style::default().fg(Color::Cyan)),

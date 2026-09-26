@@ -41,7 +41,14 @@ impl BackupStore {
         if !config_path.exists() {
             ensure!(
                 fs::read_dir(&data)?.all(|entry| entry.is_ok_and(|e| {
-                    (e.file_name() == "store.lock" || e.file_name() == "preferences.json")
+                    [
+                        "store.lock",
+                        "preferences.json",
+                        "update-check.json",
+                        "update-check.lock",
+                    ]
+                    .iter()
+                    .any(|name| e.file_name() == *name)
                         && e.file_type().is_ok_and(|kind| kind.is_file())
                 })),
                 "Directory is not an empty gitwatch store"

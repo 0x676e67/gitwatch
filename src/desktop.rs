@@ -1,5 +1,7 @@
 //! Native desktop task management, history and explicit restore previews.
 
+mod theme;
+
 use std::{path::PathBuf, time::Duration};
 
 use eframe::egui::{self, Color32, RichText};
@@ -53,7 +55,7 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
         "gitwatch",
         options,
         Box::new(move |context| {
-            context.egui_ctx.set_visuals(egui::Visuals::dark());
+            theme::apply(&context.egui_ctx);
             configure_fonts(&context.egui_ctx);
             Ok(Box::new(Desktop {
                 model,
@@ -88,28 +90,41 @@ impl Desktop {
             self.selected = self.model.rows.first().and_then(|r| r.draft.id);
         }
         ui.ctx().request_repaint_after(Duration::from_millis(100));
-        egui::CentralPanel::default().show(ui, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(24)).show(ui, |ui| {
+            let mut selected_language = language;
             ui.horizontal(|ui| {
                 ui.heading(RichText::new("gitwatch").size(28.0));
-                ui.label(RichText::new(language.text("Keep a history of your work.")).color(Color32::GRAY));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_enabled_ui(!self.model.busy, |ui| {
+                        egui::ComboBox::from_id_salt("language")
+                            .selected_text(language.name())
+                            .show_ui(ui, |ui| {
+                                for choice in [Language::English, Language::Chinese] {
+                                    ui.selectable_value(&mut selected_language, choice, choice.name());
+                                }
+                            });
+                    });
+                });
+            });
+            ui.weak(language.text("Keep a history of your work."));
+            if selected_language != language { self.model.set_language(selected_language); }
+            ui.add_space(10.0);
+            ui.horizontal_wrapped(|ui| {
                     if ui.button(language.text("Backup settings")).clicked() { self.settings = !self.settings; }
                     if ui.button(language.text("+ Add task")).clicked() { self.draft = Some(Draft::default()); }
                     if ui.add_enabled(!self.model.busy, egui::Button::new(language.text("Refresh"))).clicked() { self.model.send(Command::Refresh); }
-                });
             });
+            ui.add_space(8.0);
             ui.separator();
-            let mut selected_language = language;
-            ui.add_enabled_ui(!self.model.busy, |ui| {
-                egui::ComboBox::from_id_salt("language")
-                    .selected_text(language.name())
-                    .show_ui(ui, |ui| {
-                        for choice in [Language::English, Language::Chinese] {
-                            ui.selectable_value(&mut selected_language, choice, choice.name());
-                        }
+            if let Some(release) = &self.model.update {
+                egui::Frame::new().fill(theme::SELECTED).corner_radius(8).inner_margin(12).show(ui, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(language.format("gitwatch {0} is available.", &[release.version()]));
+                        ui.monospace("gitwatch self update").on_hover_text(language.text("Close gitwatch, then update from a terminal:"));
+                        ui.hyperlink_to(language.text("Release notes"), release.url());
                     });
-            });
-            if selected_language != language { self.model.set_language(selected_language); }
+                });
+            }
             if self.model.busy { ui.horizontal(|ui| { ui.spinner(); ui.label(language.text("Working in background…")); }); }
             if let Some(error) = &self.model.error { ui.colored_label(Color32::LIGHT_RED, language.error(error)); }
             if self.settings { self.settings(ui); ui.separator(); }
@@ -118,18 +133,25 @@ impl Desktop {
                 ui.columns(2, |columns| {
                     columns[0].heading(language.text("Tasks"));
                     columns[0].label(language.text("Nothing runs until you start a task."));
-                    egui::ScrollArea::vertical().id_salt("tasks").max_height(470.0).show(&mut columns[0], |ui| {
+                    egui::ScrollArea::vertical().id_salt("tasks").max_height((columns[0].available_height() - 100.0).max(100.0)).show(&mut columns[0], |ui| {
                         if self.model.rows.is_empty() { ui.add_space(24.0); ui.label(language.text("Add a workspace backup, watch a Git repository, or schedule repository updates.")); }
                         for row in &self.model.rows {
                             let id = row.draft.id;
-                            egui::Frame::group(ui.style()).show(ui, |ui| {
+                            egui::Frame::new().fill(if self.selected == id { theme::SELECTED } else { theme::SURFACE })
+                                .stroke(egui::Stroke::new(1.0, if self.selected == id { theme::ACCENT } else { theme::BORDER }))
+                                .corner_radius(10).inner_margin(14).show(ui, |ui| {
+                                ui.set_min_width((ui.available_width() - 2.0).max(0.0));
                                 if ui.selectable_label(self.selected == id, RichText::new(&row.draft.name).strong().size(18.0)).clicked() {
                                     self.selected = id; self.model.history.clear(); self.model.plan = None; self.model.text.clear(); self.history = 0; self.confirm = false; self.remove = false;
                                 }
-                                ui.label(format!("{} · {}", row.draft.kind.label(language), language.text(if row.running { "Running" } else { "Stopped" })));
-                                ui.label(&row.draft.path);
-                                ui.label(RichText::new(row.status.render(language)).small().color(Color32::LIGHT_BLUE));
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.weak(row.draft.kind.label(language));
+                                    ui.colored_label(if row.running { theme::ACCENT } else { theme::MUTED }, language.text(if row.running { "Running" } else { "Stopped" }));
+                                });
+                                ui.add(egui::Label::new(RichText::new(&row.draft.path).small().color(theme::MUTED)).wrap());
+                                ui.label(RichText::new(row.status.render(language)).small().color(theme::ACCENT));
                             });
+                            ui.add_space(6.0);
                         }
                     });
                     self.details(&mut columns[1]);
@@ -218,7 +240,7 @@ impl Desktop {
             ui.label(language.text(if kind == Kind::Pull { "Clones if needed, then pulls at the configured interval. Dirty or divergent repositories require your attention." } else { "Commits changes in the selected Git repository. The task stops automatic writes if the branch changes." }));
             return;
         }
-        egui::ScrollArea::vertical().id_salt("details").max_height(440.0).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("details").max_height((ui.available_height() - 100.0).max(100.0)).show(ui, |ui| {
             if let Some(plan) = &self.model.plan {
                 ui.separator(); ui.heading(language.text("Restore preview"));
                 ui.label(language.format("Destination: {0}", &[&plan.root().display().to_string()]));
@@ -266,9 +288,20 @@ impl Desktop {
         }));
         let mut save = false;
         let mut cancel = false;
+        ui.add_space(12.0);
+        ui.horizontal(|ui| {
+            save = ui
+                .add_enabled(
+                    !self.model.busy,
+                    egui::Button::new(language.text("Save task")),
+                )
+                .clicked();
+            cancel = ui.button(language.text("Cancel")).clicked();
+            ui.label(language.text("Saving does not start a task."));
+        });
         egui::ScrollArea::vertical()
             .id_salt("form")
-            .max_height(510.0)
+            .max_height((ui.available_height() - 70.0).max(100.0))
             .show(ui, |ui| {
                 ui.add_enabled_ui(draft.id.is_none(), |ui| {
                     ui.horizontal(|ui| {
@@ -373,17 +406,6 @@ impl Desktop {
                         &mut draft.delay,
                     );
                 }
-                ui.add_space(12.0);
-                ui.horizontal(|ui| {
-                    save = ui
-                        .add_enabled(
-                            !self.model.busy,
-                            egui::Button::new(language.text("Save task")),
-                        )
-                        .clicked();
-                    cancel = ui.button(language.text("Cancel")).clicked();
-                    ui.label(language.text("Saving does not start a task."));
-                });
             });
         if save {
             self.model.send(Command::Save(draft.clone()));
@@ -534,17 +556,47 @@ mod tests {
     }
 
     fn click(app: &mut Desktop, context: &egui::Context, label: &str) {
-        let output = render(app, context, vec![]);
-        let position = output
-            .shapes
-            .iter()
-            .find_map(|shape| match &shape.shape {
+        let find = |output: &egui::FullOutput| {
+            output.shapes.iter().find_map(|shape| match &shape.shape {
                 egui::epaint::Shape::Text(text) if text.galley.job.text == label => {
                     Some(text.pos + text.galley.size() / 2.0)
                 }
                 _ => None,
             })
-            .unwrap_or_else(|| panic!("Missing button: {label}"));
+        };
+        let mut output = render(app, context, vec![]);
+        let mut position = find(&output);
+        // At the minimum window size, history and restore controls are scrollable.
+        for _ in 0..20 {
+            if position.is_some() {
+                break;
+            }
+            let pointer = output
+                .shapes
+                .iter()
+                .find(|shape| {
+                    matches!(&shape.shape, egui::epaint::Shape::Text(text) if text.pos.x > 400.0)
+                        && shape.clip_rect.min.y > 200.0
+                        && shape.clip_rect.height() > 50.0
+                })
+                .map(|shape| egui::pos2(600.0, shape.clip_rect.center().y))
+                .unwrap_or(egui::pos2(600.0, 340.0));
+            output = render(
+                app,
+                context,
+                vec![
+                    egui::Event::PointerMoved(pointer),
+                    egui::Event::MouseWheel {
+                        phase: egui::TouchPhase::Move,
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, -60.0),
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+            position = find(&output);
+        }
+        let position = position.unwrap_or_else(|| panic!("Missing button: {label}"));
         for pressed in [true, false] {
             render(
                 app,
@@ -584,7 +636,10 @@ mod tests {
             import_path: String::new(),
         };
         settle(&mut app);
+        app.model.update =
+            Some(serde_json::from_value(serde_json::json!({"version":"99.0.0"})).unwrap());
         let context = egui::Context::default();
+        theme::apply(&context);
         configure_fonts(&context);
         click(&mut app, &context, "English");
         click(&mut app, &context, "简体中文");
