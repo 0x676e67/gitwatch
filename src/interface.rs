@@ -80,6 +80,8 @@ enum Message {
 }
 
 pub(crate) struct Model {
+    pub update: Option<crate::update::Release>,
+    notifications: crate::update::Notifications,
     pub language: Language,
     pub rows: Vec<Row>,
     pub history: Vec<HistoryEntry>,
@@ -187,6 +189,7 @@ impl Model {
     }
 
     pub fn with_language(data: Option<PathBuf>, language: Language) -> Self {
+        let notifications = crate::update::Notifications::start(data.clone());
         let (sender, commands) = mpsc::channel();
         let (messages, receiver) = mpsc::channel();
         let stop = StopToken::default();
@@ -225,6 +228,8 @@ impl Model {
             }
         });
         Self {
+            update: None,
+            notifications,
             rows: Vec::new(),
             history: Vec::new(),
             branches: Vec::new(),
@@ -253,6 +258,9 @@ impl Model {
     }
 
     pub fn poll(&mut self) {
+        if let Some(release) = self.notifications.poll() {
+            self.update = Some(release);
+        }
         while let Ok(message) = self.receiver.try_recv() {
             match message {
                 Message::Language(language) => self.language = language,

@@ -18,6 +18,7 @@ pub mod tui;
 
 pub mod i18n;
 pub mod pull;
+pub mod update;
 pub mod watch;
 pub mod workspace;
 

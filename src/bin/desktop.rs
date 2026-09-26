@@ -38,6 +38,7 @@ fn run() -> gitwatch::Result<()> {
         }
     };
     let args = Args::from_arg_matches(&matches)?;
+    let _running = gitwatch::update::Running::acquire()?;
     gitwatch::desktop::run_with_language(args.data_dir, language)
         .map_err(|error| anyhow::anyhow!(language.error(&format!("{error:#}"))))
 }

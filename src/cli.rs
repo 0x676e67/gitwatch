@@ -88,6 +88,12 @@ struct DirectArgs {
 
 #[derive(Subcommand)]
 enum Action {
+    /// Update or uninstall this gitwatch installation.
+    #[command(name = "self")]
+    Manage {
+        #[command(subcommand)]
+        command: SelfAction,
+    },
     /// Clone or periodically fast-forward a local repository.
     Pull {
         path: PathBuf,
@@ -113,6 +119,31 @@ enum Action {
     Tui,
     /// Open the desktop interface (requires the desktop feature).
     Desktop,
+}
+
+#[derive(Subcommand)]
+enum SelfAction {
+    /// Download and install the latest stable GitHub release.
+    Update {
+        /// Check for a newer version without changing the installation.
+        #[arg(long, conflicts_with = "recover")]
+        check: bool,
+        /// Select a stable release version.
+        #[arg(long, conflicts_with = "recover")]
+        version: Option<String>,
+        /// Restore an installation interrupted during replacement.
+        #[arg(long)]
+        recover: bool,
+        /// Confirm replacement with the official release build.
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+    /// Remove program binaries while keeping settings and backups.
+    Uninstall {
+        /// Confirm removal of the listed program files.
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -270,7 +301,22 @@ fn run_localized(args: Vec<std::ffi::OsString>, language: Language) -> Result<()
             );
         }
     }
+    let _running = if matches!(cli.command, Some(Action::Manage { .. })) {
+        None
+    } else {
+        Some(gitwatch::update::Running::acquire()?)
+    };
+    let _notice = if !cli.json
+        && !matches!(
+            cli.command,
+            Some(Action::Manage { .. } | Action::Tui | Action::Desktop)
+        ) {
+        cli_notifications(cli.data_dir.clone(), language)
+    } else {
+        None
+    };
     match cli.command {
+        Some(Action::Manage { command }) => self_command(command, cli.json, language),
         Some(Action::Pull {
             path,
             url,
@@ -353,6 +399,139 @@ fn run_localized(args: Vec<std::ffi::OsString>, language: Language) -> Result<()
             Ok(())
         }
     }
+}
+
+fn self_command(command: SelfAction, json: bool, language: Language) -> Result<()> {
+    use gitwatch::update::{Installation, Release, VERSION};
+    match command {
+        SelfAction::Update {
+            check,
+            version,
+            recover,
+            yes,
+        } => {
+            if recover {
+                Installation::recover()?;
+                return emit(
+                    &serde_json::json!({"status":"recovered"}),
+                    json,
+                    language.text("Installation restored.").into(),
+                );
+            }
+            let release = Release::check(version.as_deref())?;
+            if check || !release.is_newer() {
+                return emit(
+                    &serde_json::json!({"current":VERSION,"latest":release.version(),"available":release.is_newer(),"url":release.url()}),
+                    json,
+                    if release.is_newer() {
+                        language.format(
+                            "gitwatch {0} is available. Run gitwatch self update.",
+                            &[release.version()],
+                        )
+                    } else {
+                        language.text("gitwatch is up to date.").into()
+                    },
+                );
+            }
+            let installation = Installation::current()?;
+            confirm_installation(
+                &installation,
+                yes,
+                json,
+                language,
+                "Replace these programs with the official release build?",
+            )?;
+            if !json {
+                eprintln!("{}", language.text("Downloading and verifying the update…"));
+            }
+            installation.update(&release)?;
+            emit(
+                &serde_json::json!({"status":"updated","version":release.version()}),
+                json,
+                language.format("Updated to gitwatch {0}.", &[release.version()]),
+            )
+        }
+        SelfAction::Uninstall { yes } => {
+            let installation = Installation::current()?;
+            confirm_installation(
+                &installation,
+                yes,
+                json,
+                language,
+                "Remove these programs? Settings and backups will be kept.",
+            )?;
+            installation.uninstall()?;
+            emit(
+                &serde_json::json!({"status":"uninstalled","data_retained":true}),
+                json,
+                language
+                    .text("Uninstalled. Settings and backups were kept.")
+                    .into(),
+            )
+        }
+    }
+}
+
+fn confirm_installation(
+    installation: &gitwatch::update::Installation,
+    yes: bool,
+    json: bool,
+    language: Language,
+    question: &str,
+) -> Result<()> {
+    use std::io::{IsTerminal, Write};
+    if !json {
+        for path in installation.files() {
+            eprintln!("{}", path.display());
+        }
+    }
+    if yes {
+        return Ok(());
+    }
+    ensure!(
+        !json && std::io::stdin().is_terminal(),
+        "Use --yes to confirm this operation non-interactively"
+    );
+    eprint!("{} [y/N] ", language.text(question));
+    std::io::stderr().flush()?;
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer)?;
+    ensure!(
+        matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes"),
+        "Operation cancelled"
+    );
+    Ok(())
+}
+
+fn cli_notifications(
+    data: Option<PathBuf>,
+    language: Language,
+) -> Option<std::sync::mpsc::Sender<()>> {
+    use std::io::IsTerminal;
+    if !std::io::stderr().is_terminal() {
+        return None;
+    }
+    let (stop, stopped) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let notices = gitwatch::update::Notifications::start(data);
+        loop {
+            if let Some(release) = notices.poll() {
+                eprintln!(
+                    "{}",
+                    language.format(
+                        "gitwatch {0} is available. Run gitwatch self update.",
+                        &[release.version()]
+                    )
+                );
+            }
+            if stopped.recv_timeout(Duration::from_millis(100))
+                != Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            {
+                break;
+            }
+        }
+    });
+    Some(stop)
 }
 
 fn direct(args: DirectArgs, json: bool, verbose: bool, language: Language) -> Result<()> {

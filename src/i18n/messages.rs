@@ -1,5 +1,203 @@
 // English source messages are stable keys. Numbered values are inserted verbatim.
 pub(super) const TEXT: &[(&str, &str)] = &[
+    (
+        "Invalid Cargo installation metadata",
+        "Cargo 安装登记信息无效",
+    ),
+    (
+        "Release manifest is missing the desktop program",
+        "发布清单缺少桌面程序",
+    ),
+    ("Invalid executable header", "可执行文件头无效"),
+    (
+        "Executable architecture does not match this platform",
+        "程序架构与当前平台不匹配",
+    ),
+    (
+        "Existing license file differs from the release",
+        "现有许可文件与发布内容不同",
+    ),
+    (
+        "Update or uninstall this gitwatch installation",
+        "更新或卸载当前 gitwatch 程序。",
+    ),
+    (
+        "Download and install the latest stable GitHub release",
+        "下载并安装 GitHub 上的最新稳定版本。",
+    ),
+    (
+        "Check for a newer version without changing the installation",
+        "检查新版本，不修改当前安装。",
+    ),
+    ("Select a stable release version", "指定稳定版本。"),
+    (
+        "Restore an installation interrupted during replacement",
+        "恢复替换过程中中断的安装。",
+    ),
+    (
+        "Confirm replacement with the official release build",
+        "确认替换为官方发布构建。",
+    ),
+    (
+        "Remove program binaries while keeping settings and backups",
+        "卸载程序，保留配置和备份。",
+    ),
+    (
+        "Confirm removal of the listed program files",
+        "确认删除列出的程序文件。",
+    ),
+    ("Installation restored.", "安装恢复完成。"),
+    (
+        "gitwatch {0} is available. Run gitwatch self update.",
+        "gitwatch {0} 已发布，运行 gitwatch self update 更新。",
+    ),
+    ("gitwatch {0} is available.", "gitwatch {0} 已发布。"),
+    ("gitwatch is up to date.", "gitwatch 已是最新版本。"),
+    (
+        "Replace these programs with the official release build?",
+        "将这些程序替换为官方发布构建吗？",
+    ),
+    (
+        "Downloading and verifying the update…",
+        "正在下载并校验更新…",
+    ),
+    ("Updated to gitwatch {0}.", "已更新到 gitwatch {0}。"),
+    (
+        "Remove these programs? Settings and backups will be kept.",
+        "卸载这些程序吗？配置和备份将保留。",
+    ),
+    (
+        "Uninstalled. Settings and backups were kept.",
+        "已卸载，配置和备份已保留。",
+    ),
+    (
+        "Use --yes to confirm this operation non-interactively",
+        "非交互执行时，请使用 --yes 确认此操作",
+    ),
+    ("Operation cancelled", "操作已取消"),
+    ("Release notes", "更新说明"),
+    (
+        "Close gitwatch, then update from a terminal:",
+        "关闭 gitwatch，然后在终端执行更新：",
+    ),
+    (
+        "No official release is available for this platform",
+        "此平台暂无官方预编译版本",
+    ),
+    ("Cannot check GitHub releases", "无法检查 GitHub 上的版本"),
+    ("Cannot download checksums", "无法下载校验和"),
+    ("Cannot download update", "无法下载更新"),
+    ("Update checksum does not match", "更新文件的校验和不匹配"),
+    ("Only stable releases are supported", "仅支持稳定版本"),
+    (
+        "Release version does not match the request",
+        "发布版本与请求不一致",
+    ),
+    ("Release archive is too large", "发布压缩包过大"),
+    (
+        "The release is missing a required asset",
+        "此版本缺少所需的发布文件",
+    ),
+    ("Duplicate release asset", "发布文件重复"),
+    (
+        "Unexpected release download URL",
+        "发布文件下载地址不符合预期",
+    ),
+    ("Release response is too large", "发布接口响应过大"),
+    ("Invalid release checksum", "发布校验和无效"),
+    (
+        "The archive is missing from SHA256SUMS",
+        "SHA256SUMS 中未列出此压缩包",
+    ),
+    (
+        "Installation target does not match this platform",
+        "安装目标与当前平台不匹配",
+    ),
+    ("Invalid installation receipt", "安装清单无效"),
+    ("Invalid program file", "程序文件无效"),
+    (
+        "Program changed while reading",
+        "读取过程中程序文件发生变化",
+    ),
+    (
+        "Too many files in release archive",
+        "发布压缩包中的文件过多",
+    ),
+    (
+        "Links and directories are not allowed in release archives",
+        "发布压缩包不允许包含链接或目录条目",
+    ),
+    ("Invalid archive filename", "压缩包文件名无效"),
+    (
+        "Release manifest version does not match",
+        "发布清单版本不匹配",
+    ),
+    (
+        "Release archive is missing a required file",
+        "发布压缩包缺少所需文件",
+    ),
+    ("Invalid archive path", "压缩包路径无效"),
+    ("Unexpected archive path", "压缩包包含未预期的路径"),
+    ("Duplicate archive path", "压缩包路径重复"),
+    ("Archive size overflow", "压缩包大小溢出"),
+    (
+        "Release archive expands beyond its limit",
+        "发布压缩包解压大小超出限制",
+    ),
+    ("Archive entry size does not match", "压缩包条目大小不匹配"),
+    (
+        "Run self management from the installed gitwatch executable",
+        "请通过已安装的 gitwatch 程序执行自身管理",
+    ),
+    (
+        "An interrupted operation needs recovery; run gitwatch self update --recover",
+        "上次操作中断，请运行 gitwatch self update --recover 恢复",
+    ),
+    (
+        "This desktop installation has no receipt; extract a current official release before self management",
+        "此桌面安装缺少清单，请先解压当前官方发布包，再使用自身管理命令",
+    ),
+    (
+        "Current executable does not match the installation",
+        "当前程序与安装清单不匹配",
+    ),
+    (
+        "The selected release is not newer than this build",
+        "所选版本不高于当前构建",
+    ),
+    (
+        "Release is missing an installed program",
+        "发布包缺少已安装的程序",
+    ),
+    (
+        "Update failed; the previous installation was restored",
+        "更新失败，已恢复原安装",
+    ),
+    (
+        "Uninstall failed; the installation was restored",
+        "卸载失败，已恢复原安装",
+    ),
+    ("Invalid license directory", "许可文件目录无效"),
+    (
+        "Installation changed while preparing the operation",
+        "准备操作时安装文件发生变化",
+    ),
+    ("Cannot locate application cache", "无法定位应用缓存目录"),
+    (
+        "Another gitwatch process is using this installation; stop it before self management",
+        "其他 gitwatch 进程正在使用此安装，请先停止再执行自身管理",
+    ),
+    (
+        "Cargo manages this installation; use cargo install gitwatch --force or cargo uninstall gitwatch with the same --root",
+        "此安装由 Cargo 管理，请使用 cargo install gitwatch --force 或 cargo uninstall gitwatch，并保持相同的 --root",
+    ),
+    (
+        "Use the package manager to update or uninstall this installation",
+        "请使用包管理器更新或卸载此安装",
+    ),
+    ("Recovery directory is unavailable", "恢复目录不可用"),
+    ("Invalid recovery manifest", "恢复清单无效"),
+    ("Recovery copy failed verification", "恢复副本校验失败"),
     ("Destination: {0}", "目标位置：{0}"),
     (
         "Unsupported language; use en or zh-CN",
