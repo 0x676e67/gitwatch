@@ -8,22 +8,17 @@ You can use it to keep a history of your notes, back up files from several proje
 - `workspace` copies selected files into a separate backup repository, with one branch per workspace. It doesn't stage or commit anything in your source projects.
 - `pull` keeps a local checkout up to date, cloning it first if needed.
 
-## Build and run
+## Install and run
 
-The first release isn't on crates.io yet. You'll need Git and Rust 1.96 or newer to install from source:
-
-```sh
-git clone https://github.com/0x676e67/gitwatch.git
-cd gitwatch
-```
-
-Choose the interfaces you need:
+Install Git and Rust 1.96 or newer, then choose the interfaces you need:
 
 ```sh
-cargo install --path . --locked                     # CLI
-cargo install --path . --locked --features tui      # CLI + terminal interface
-cargo install --path . --locked --all-features      # CLI + TUI + desktop
+cargo install gitwatch --locked                     # CLI
+cargo install gitwatch --locked --features tui      # CLI + terminal interface
+cargo install gitwatch --locked --all-features      # CLI + TUI + desktop
 ```
+
+To build from source, clone this repository and replace `gitwatch` in the install command with `--path .`.
 
 Then run `gitwatch --help`, or open an interface you included in the build:
 
@@ -147,6 +142,10 @@ cargo clippy --all-features --all-targets -- -D warnings
 
 CI checks CLI, TUI, desktop and combined builds on Windows, macOS and Linux. Tests use temporary repositories and local remotes. The terminal UI uses Ratatui; the desktop uses egui/eframe, with the same Rust core behind both.
 
-Tag builds create CLI and desktop archives and a draft GitHub release. They don't publish to crates.io. Native installers, signing, notarization and automatic conflict resolution aren't included in this first version.
+The Release workflow builds versioned archives for Linux x86-64, Windows x86-64 and macOS Apple Silicon, with both binaries and SHA-256 checksums. Git must be installed separately. Native installers, signing, notarization and automatic conflict resolution aren't included in this first version.
+
+Pushing a `v<version>` tag publishes a GitHub Release after the checks pass. The tag must match `Cargo.toml` and point to a commit on `main`. Crates.io uploads use [Trusted Publishing](https://crates.io/docs/trusted-publishing) through `release.yml` and the `crates-io` environment; an already published version is skipped. The first crate version needs to be published locally before configuring that trust.
+
+To try the release build without publishing, run **Release** from the Actions tab with `publish` disabled. To publish an existing tag manually, select that tag and enable `publish`. Leave `publish_crate` disabled if you only want the GitHub Release.
 
 Licensed under Apache-2.0. This is an independent Rust implementation inspired by gitwatch; upstream shell code is not included.
