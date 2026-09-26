@@ -4,6 +4,7 @@ use anyhow::{Context, ensure};
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use gitwatch::{
     Result,
+    i18n::Language,
     watch::{self, Event, MonitorOptions, Repository, StopToken, WatchOptions},
     workspace::{BackupStore, UploadState, Workspace},
 };
@@ -18,6 +19,9 @@ use uuid::Uuid;
     subcommand_negates_reqs = true
 )]
 struct Cli {
+    /// Language (en or zh-CN).
+    #[arg(long, global = true, env = "GITWATCH_LANG")]
+    lang: Option<String>,
     #[command(flatten)]
     watch: DirectArgs,
     #[command(subcommand)]
@@ -218,7 +222,24 @@ enum WorkspaceAction {
 }
 
 pub fn run() -> Result<()> {
-    let matches = Cli::command().get_matches();
+    let args: Vec<_> = std::env::args_os().collect();
+    let language = Language::from_args(&args)?;
+    run_localized(args, language)
+        .map_err(|error| anyhow::anyhow!(language.error(&format!("{error:#}"))))
+}
+
+fn run_localized(args: Vec<std::ffi::OsString>, language: Language) -> Result<()> {
+    let matches = match language.command(Cli::command()).try_get_matches_from(args) {
+        Ok(matches) => matches,
+        Err(error) if error.use_stderr() => {
+            eprint!("{}", language.argument_error(&error));
+            std::process::exit(error.exit_code());
+        }
+        Err(error) => {
+            error.print()?;
+            return Ok(());
+        }
+    };
     let cli = Cli::from_arg_matches(&matches)?;
     if cli.command.is_some() {
         for id in [
@@ -273,17 +294,19 @@ pub fn run() -> Result<()> {
                 return emit(
                     &report,
                     cli.json,
-                    format!(
-                        "{} {} at {}",
-                        if report.cloned() {
-                            "Cloned"
-                        } else if report.changed() {
-                            "Updated"
-                        } else {
-                            "Unchanged"
-                        },
-                        report.path().display(),
-                        report.after()
+                    language.format(
+                        "{0} {1} at {2}",
+                        &[
+                            language.text(if report.cloned() {
+                                "Cloned"
+                            } else if report.changed() {
+                                "Updated"
+                            } else {
+                                "Unchanged"
+                            }),
+                            &report.path().display().to_string(),
+                            report.after(),
+                        ],
                     ),
                 );
             }
@@ -292,37 +315,45 @@ pub fn run() -> Result<()> {
                     let _ = emit(
                         &report,
                         cli.json,
-                        format!("{} at {}", report.path().display(), report.after()),
+                        language.format(
+                            "{0} at {1}",
+                            &[&report.path().display().to_string(), report.after()],
+                        ),
                     );
                 }
-                Err(error) => event(Event::Error(error.to_string()), cli.json, cli.verbose),
+                Err(error) => event(
+                    Event::Error(error.to_string()),
+                    cli.json,
+                    cli.verbose,
+                    language,
+                ),
             })
         }
-        Some(Action::Watch(args)) => direct(args, cli.json, cli.verbose),
+        Some(Action::Watch(args)) => direct(args, cli.json, cli.verbose, language),
         Some(Action::Workspace { command }) => {
             let store =
                 BackupStore::open(cli.data_dir.unwrap_or(BackupStore::default_directory()?))?;
-            workspace_command(store, command, cli.json, cli.verbose)
+            workspace_command(store, command, cli.json, cli.verbose, language)
         }
         Some(Action::Tui) => {
             #[cfg(feature = "tui")]
             {
-                gitwatch::tui::run(cli.data_dir)
+                gitwatch::tui::run_with_language(cli.data_dir, language)
             }
             #[cfg(not(feature = "tui"))]
             anyhow::bail!("TUI was not compiled; install gitwatch with --features tui")
         }
-        Some(Action::Desktop) => launch_desktop(cli.data_dir),
-        None if cli.watch.target.is_some() => direct(cli.watch, cli.json, cli.verbose),
+        Some(Action::Desktop) => launch_desktop(cli.data_dir, language),
+        None if cli.watch.target.is_some() => direct(cli.watch, cli.json, cli.verbose, language),
         None => {
-            Cli::command().print_help()?;
+            language.command(Cli::command()).print_help()?;
             println!();
             Ok(())
         }
     }
 }
 
-fn direct(args: DirectArgs, json: bool, verbose: bool) -> Result<()> {
+fn direct(args: DirectArgs, json: bool, verbose: bool, language: Language) -> Result<()> {
     let target = args
         .target
         .context("Provide a file or directory to watch")?;
@@ -355,7 +386,7 @@ fn direct(args: DirectArgs, json: bool, verbose: bool) -> Result<()> {
     if args.once {
         let report = repository.commit()?;
         let failed = matches!(report.upload(), UploadState::Failed { .. });
-        event(Event::Repository(report), json, verbose);
+        event(Event::Repository(report), json, verbose, language);
         ensure!(!failed, "Local operation completed but upload failed");
         return Ok(());
     }
@@ -368,7 +399,7 @@ fn direct(args: DirectArgs, json: bool, verbose: bool) -> Result<()> {
         .events(args.events);
     let stop = signal()?;
     watch::watch_repository(repository, monitor, stop, |value| {
-        event(value, json, verbose)
+        event(value, json, verbose, language)
     })
 }
 
@@ -377,6 +408,7 @@ fn workspace_command(
     command: WorkspaceAction,
     json: bool,
     verbose: bool,
+    language: Language,
 ) -> Result<()> {
     match command {
         WorkspaceAction::Add {
@@ -397,11 +429,13 @@ fn workspace_command(
             emit(
                 &workspace,
                 json,
-                format!(
-                    "Registered {} ({}) on branch {}",
-                    workspace.name(),
-                    workspace.id(),
-                    workspace.branch()
+                language.format(
+                    "Registered {0} ({1}) on branch {2}",
+                    &[
+                        workspace.name(),
+                        &workspace.id().to_string(),
+                        workspace.branch(),
+                    ],
                 ),
             )?;
         }
@@ -413,13 +447,15 @@ fn workspace_command(
                 workspaces
                     .iter()
                     .map(|w| {
-                        format!(
-                            "{}  {}  branch={}  {}{}",
-                            w.id(),
-                            w.name(),
-                            w.branch(),
-                            w.root().display(),
-                            if w.is_paused() { " [paused]" } else { "" }
+                        language.format(
+                            "{0}  {1}  branch={2}  {3}{4}",
+                            &[
+                                &w.id().to_string(),
+                                w.name(),
+                                w.branch(),
+                                &w.root().display().to_string(),
+                                language.text(if w.is_paused() { " [paused]" } else { "" }),
+                            ],
                         )
                     })
                     .collect::<Vec<_>>()
@@ -454,7 +490,11 @@ fn workspace_command(
             }
             let workspace = builder.build()?;
             store.update(workspace.clone())?;
-            emit(&workspace, json, format!("Updated {}", workspace.name()))?;
+            emit(
+                &workspace,
+                json,
+                language.format("Updated {0}", &[workspace.name()]),
+            )?;
         }
         WorkspaceAction::Bind { workspace, root } => {
             let workspace = find(&store, &workspace)?.edit().root(root).build()?;
@@ -462,10 +502,9 @@ fn workspace_command(
             emit(
                 &workspace,
                 json,
-                format!(
-                    "Bound {} to {}",
-                    workspace.name(),
-                    workspace.root().display()
+                language.format(
+                    "Bound {0} to {1}",
+                    &[workspace.name(), &workspace.root().display().to_string()],
                 ),
             )?;
         }
@@ -474,7 +513,9 @@ fn workspace_command(
             emit(
                 &true,
                 json,
-                "Binding removed; branch history retained".into(),
+                language
+                    .text("Binding removed; branch history retained")
+                    .into(),
             )?;
         }
         WorkspaceAction::Backup { workspace, push } => {
@@ -482,10 +523,10 @@ fn workspace_command(
             let report = store.backup(workspace.id())?;
             let failed = matches!(report.upload(), UploadState::Failed { .. });
             let uploaded = matches!(report.upload(), UploadState::Synced);
-            event(Event::Backup(report), json, verbose);
+            event(Event::Backup(report), json, verbose, language);
             if push && !uploaded {
                 store.push(workspace.id())?;
-                event(Event::Upload(UploadState::Synced), json, verbose);
+                event(Event::Upload(UploadState::Synced), json, verbose, language);
             } else {
                 ensure!(!failed, "Local backup saved; automatic upload failed");
             }
@@ -498,19 +539,21 @@ fn workspace_command(
                 status
                     .as_ref()
                     .map(|s| {
-                        format!(
-                            "Local {} ({} files); upload {:?}",
-                            s.commit(),
-                            s.files(),
-                            s.upload()
+                        language.format(
+                            "Local {0} ({1} files); upload {2}",
+                            &[
+                                s.commit(),
+                                &s.files().to_string(),
+                                &upload_text(s.upload(), language),
+                            ],
                         )
                     })
-                    .unwrap_or("No backup yet".into()),
+                    .unwrap_or(language.text("No backup yet").into()),
             )?;
         }
         WorkspaceAction::Push { workspace } => {
             store.push(find(&store, &workspace)?.id())?;
-            event(Event::Upload(UploadState::Synced), json, verbose);
+            event(Event::Upload(UploadState::Synced), json, verbose, language);
         }
         WorkspaceAction::Remote {
             url,
@@ -524,9 +567,12 @@ fn workspace_command(
             emit(
                 &serde_json::json!({"configured":url.is_some(),"auto_push":auto}),
                 json,
-                format!(
-                    "Remote configured: {}; automatic upload: {auto}",
-                    url.is_some()
+                language.format(
+                    "Remote configured: {0}; automatic upload: {1}",
+                    &[
+                        language.text(if url.is_some() { "yes" } else { "no" }),
+                        language.text(if auto { "yes" } else { "no" }),
+                    ],
                 ),
             )?;
         }
@@ -558,9 +604,9 @@ fn workspace_command(
             emit(
                 &workspace,
                 json,
-                format!(
-                    "Imported {} (paused). Preview a restore before resuming.",
-                    workspace.name()
+                language.format(
+                    "Imported {0} (paused). Preview a restore before resuming.",
+                    &[workspace.name()],
                 ),
             )?;
         }
@@ -605,15 +651,21 @@ fn workspace_command(
                     "Restore plan belongs to a different workspace"
                 );
                 if let Some(path) = show {
-                    let (before, after) = store.restore_contents(plan, &path)?;
-                    let before = before.as_deref().map(display_bytes);
-                    let after = display_bytes(&after);
+                    let (before_bytes, after_bytes) = store.restore_contents(plan, &path)?;
+                    let before = before_bytes.as_deref().map(display_bytes);
+                    let after = display_bytes(&after_bytes);
                     emit(
                         &serde_json::json!({"before":before,"after":after}),
                         json,
-                        format!(
-                            "--- current ---\n{}\n--- selected ---\n{after}",
-                            before.as_deref().unwrap_or("(missing)")
+                        language.format(
+                            "--- Current ---\n{0}\n--- Selected ---\n{1}",
+                            &[
+                                &before_bytes
+                                    .as_deref()
+                                    .map(|bytes| display_contents(bytes, language))
+                                    .unwrap_or_else(|| language.text("(missing)").into()),
+                                &display_contents(&after_bytes, language),
+                            ],
                         ),
                     )?;
                 } else {
@@ -622,10 +674,12 @@ fn workspace_command(
                     emit(
                         &report,
                         json,
-                        format!(
-                            "Restored {} files. Recovery copies: {}",
-                            report.written().len(),
-                            report.recovery().display()
+                        language.format(
+                            "Restored {0} files. Recovery copies: {1}",
+                            &[
+                                &report.written().len().to_string(),
+                                &report.recovery().display().to_string(),
+                            ],
                         ),
                     )?;
                     ensure!(
@@ -644,18 +698,21 @@ fn workspace_command(
                 let lines = plan
                     .entries()
                     .iter()
-                    .map(|entry| format!("{:?}  {}", entry.change(), entry.path()))
+                    .map(|entry| {
+                        format!(
+                            "{}  {}",
+                            language.text(&format!("{:?}", entry.change())),
+                            entry.path()
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join("\n");
                 emit(
                     &plan,
                     json,
-                    format!(
-                        "{lines}\nPlan: {}\nConfirm with: gitwatch workspace restore {} --plan {} --confirm",
-                        plan.id(),
-                        workspace.id(),
-                        plan.id()
-                    ),
+                    language.format("{0}\nPlan: {1}\nConfirm with: gitwatch workspace restore {2} --plan {3} --confirm", &[
+                        &lines, &plan.id().to_string(), &workspace.id().to_string(), &plan.id().to_string(),
+                    ]),
                 )?;
             }
         }
@@ -689,7 +746,7 @@ fn workspace_command(
                     let stop = stop.clone();
                     handles.push(scope.spawn(move || {
                         watch::watch_workspace(store, workspace.id(), monitor, stop, |value| {
-                            event(value, json, verbose)
+                            event(value, json, verbose, language)
                         })
                     }));
                 }
@@ -750,7 +807,7 @@ fn emit(value: &impl Serialize, json: bool, human: String) -> Result<()> {
     Ok(())
 }
 
-fn event(value: Event, json: bool, verbose: bool) {
+fn event(value: Event, json: bool, verbose: bool, language: Language) {
     if json {
         if let Ok(text) =
             serde_json::to_string(&serde_json::json!({"schema_version":1,"data":value}))
@@ -762,37 +819,76 @@ fn event(value: Event, json: bool, verbose: bool) {
     match value {
         Event::Repository(report) => {
             if let Some(commit) = report.commit() {
-                println!("Committed {commit}; upload {:?}", report.upload());
+                println!(
+                    "{}",
+                    language.format(
+                        "Committed {0}; upload {1}",
+                        &[commit, &upload_text(report.upload(), language)]
+                    )
+                );
             }
             if let Some(reason) = report.skipped() {
-                eprintln!("Paused: {reason}");
+                eprintln!(
+                    "{}",
+                    language.format("Paused: {0}", &[&language.error(reason)])
+                );
             }
         }
         Event::Backup(report) => println!(
-            "{} {} ({} files; {} retained); upload {:?}",
-            if report.changed() {
-                "Saved"
-            } else {
-                "Unchanged"
-            },
-            report.commit(),
-            report.files(),
-            report.retained().len(),
-            report.upload()
+            "{}",
+            language.format(
+                "{0} {1} ({2} files; {3} retained); upload {4}",
+                &[
+                    language.text(if report.changed() {
+                        "Saved"
+                    } else {
+                        "Unchanged"
+                    }),
+                    report.commit(),
+                    &report.files().to_string(),
+                    &report.retained().len().to_string(),
+                    &upload_text(report.upload(), language),
+                ]
+            )
         ),
-        Event::Error(error) => eprintln!("{error}"),
-        Event::Upload(UploadState::Failed { message }) => eprintln!("Upload pending: {message}"),
-        Event::Upload(UploadState::Synced) => println!("Upload synchronized"),
-        Event::Stopped => println!("Stopped"),
-        value if verbose => eprintln!("{value:?}"),
+        Event::Error(error) => eprintln!("{}", language.error(&error)),
+        Event::Upload(UploadState::Failed { message }) => eprintln!(
+            "{}",
+            language.format("Upload pending: {0}", &[&language.error(&message)])
+        ),
+        Event::Upload(UploadState::Synced) => println!("{}", language.text("Upload synchronized")),
+        Event::Stopped => println!("{}", language.text("Stopped")),
+        Event::Watching(source) if verbose => eprintln!(
+            "{}",
+            language.format("Watching: {0}", &[language.text(&source)])
+        ),
+        Event::Pending if verbose => eprintln!("{}", language.text("Changes pending")),
         _ => {}
     }
 }
 
-fn launch_desktop(data: Option<PathBuf>) -> Result<()> {
+fn upload_text(upload: &UploadState, language: Language) -> String {
+    match upload {
+        UploadState::Disabled => language.text("Disabled").into(),
+        UploadState::Pending => language.text("Pending").into(),
+        UploadState::Synced => language.text("Synced").into(),
+        UploadState::Failed { message } => {
+            language.format("Failed: {0}", &[&language.error(message)])
+        }
+    }
+}
+
+fn display_contents(bytes: &[u8], language: Language) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(text) if !text.contains('\0') => text.into(),
+        _ => language.format("(binary file, {0} bytes)", &[&bytes.len().to_string()]),
+    }
+}
+
+fn launch_desktop(data: Option<PathBuf>, language: Language) -> Result<()> {
     #[cfg(not(feature = "desktop"))]
     {
-        let _ = data;
+        let _ = (data, language);
         anyhow::bail!("Desktop was not compiled; install gitwatch with --features desktop")
     }
     #[cfg(feature = "desktop")]
@@ -807,6 +903,7 @@ fn launch_desktop(data: Option<PathBuf>) -> Result<()> {
             "Desktop binary is not installed beside gitwatch"
         );
         let mut command = std::process::Command::new(executable);
+        command.arg("--lang").arg(language.code());
         if let Some(data) = data {
             command.arg("--data-dir").arg(data);
         }

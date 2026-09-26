@@ -3,14 +3,14 @@ name = "gitwatch"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.96"
-license = "Apache-2.0"
+license = "Apache-2.0 AND OFL-1.1"
 description = "Cross-platform Git watching and workspace branch backups"
 repository = "https://github.com/0x676e67/gitwatch"
 readme = "README.md"
 keywords = ["git", "backup", "watch", "cli", "workspace"]
 categories = ["command-line-utilities", "filesystem"]
 default-run = "gitwatch"
-include = ["/src/**", "/tests/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
+include = ["/src/**", "/tests/**", "/assets/fonts/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
 
 [[bin]]
 name = "gitwatch"
@@ -29,7 +29,7 @@ desktop = ["dep:eframe", "dep:rfd"]
 [dependencies]
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-clap = { version = "4.6", features = ["derive", "env"] }
+clap = { version = "4.6", features = ["derive", "env", "string"] }
 ctrlc = "3.5"
 directories = "6"
 dunce = "1"
@@ -41,6 +41,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 shlex = "1"
+sys-locale = "0.3"
 tempfile = "3"
 uuid = { version = "1", features = ["v4", "serde"] }
 ratatui = { version = "0.30", optional = true }

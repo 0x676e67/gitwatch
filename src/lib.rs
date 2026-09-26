@@ -16,6 +16,7 @@ mod interface;
 #[cfg(feature = "tui")]
 pub mod tui;
 
+pub mod i18n;
 pub mod pull;
 pub mod watch;
 pub mod workspace;

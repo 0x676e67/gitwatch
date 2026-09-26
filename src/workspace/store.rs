@@ -32,7 +32,7 @@ pub(crate) struct Blob {
 
 impl BackupStore {
     /// Opens an existing store or initializes an empty directory.
-    /// Refuses to adopt a nonempty directory without a gitwatch configuration.
+    /// Refuses unrelated contents; local language preferences may already exist.
     pub fn open(data: impl AsRef<Path>) -> Result<Self> {
         fs::create_dir_all(data.as_ref())?;
         let data = paths::root(data.as_ref())?;
@@ -40,8 +40,10 @@ impl BackupStore {
         let config_path = data.join("config.json");
         if !config_path.exists() {
             ensure!(
-                fs::read_dir(&data)?
-                    .all(|entry| entry.is_ok_and(|e| e.file_name() == "store.lock")),
+                fs::read_dir(&data)?.all(|entry| entry.is_ok_and(|e| {
+                    (e.file_name() == "store.lock" || e.file_name() == "preferences.json")
+                        && e.file_type().is_ok_and(|kind| kind.is_file())
+                })),
                 "Directory is not an empty gitwatch store"
             );
             git::init_bare(&data.join("backup.git"))?;

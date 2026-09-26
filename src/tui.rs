@@ -12,6 +12,7 @@ use ratatui::{
 
 use crate::{
     Result,
+    i18n::Language,
     interface::{Command, Draft, Kind, Model},
 };
 
@@ -34,6 +35,12 @@ struct Screen {
 
 /// Opens the TUI and restores terminal modes on normal exit or failure.
 pub fn run(data: Option<PathBuf>) -> Result<()> {
+    let language = Language::resolve(None, data.as_deref())?;
+    run_with_language(data, language)
+}
+
+/// Opens the terminal interface with an explicit initial language.
+pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()> {
     let mut terminal = ratatui::try_init()?;
     struct RestoreTerminal;
     impl Drop for RestoreTerminal {
@@ -43,7 +50,7 @@ pub fn run(data: Option<PathBuf>) -> Result<()> {
     }
     let _restore = RestoreTerminal;
     let mut screen = Screen {
-        model: Model::new(data),
+        model: Model::with_language(data, language),
         selected: 0,
         history: 0,
         entry: 0,
@@ -82,6 +89,7 @@ pub fn run(data: Option<PathBuf>) -> Result<()> {
 
 impl Screen {
     fn draw(&self, frame: &mut Frame) {
+        let language = self.model.language;
         let [header, body, footer] = Layout::vertical([
             Constraint::Length(3),
             Constraint::Min(8),
@@ -89,9 +97,11 @@ impl Screen {
         ])
         .areas(frame.area());
         frame.render_widget(
-            Paragraph::new("gitwatch  /  Workspaces · Repository watch · Scheduled pull")
-                .block(Block::bordered())
-                .style(Style::default().fg(Color::Cyan)),
+            Paragraph::new(
+                language.text("gitwatch  /  Workspaces · Repository watch · Scheduled pull"),
+            )
+            .block(Block::bordered())
+            .style(Style::default().fg(Color::Cyan)),
             header,
         );
         if let Some(draft) = &self.draft {
@@ -113,8 +123,9 @@ impl Screen {
                 .enumerate()
                 .map(|(i, (label, value))| {
                     ListItem::new(format!(
-                        "{} {label}: {}",
+                        "{} {}: {}",
                         if i == self.field { ">" } else { " " },
+                        language.text(label),
                         value.replace('\n', " | ")
                     ))
                     .style(if i == self.field {
@@ -125,9 +136,9 @@ impl Screen {
                 })
                 .collect();
             frame.render_widget(
-                List::new(list).block(Block::bordered().title(format!(
-                    "{:?} task — F2: mode; Tab: field; Ctrl+S: save; Esc: cancel",
-                    draft.kind
+                List::new(list).block(Block::bordered().title(language.format(
+                    "{0} task — F2: mode; Tab: field; Ctrl+S: save; Esc: cancel",
+                    &[draft.kind.label(language)],
                 ))),
                 body,
             );
@@ -145,21 +156,26 @@ impl Screen {
                 "Restore paths: one per line, empty = all (Alt+Enter: newline; Enter: preview)"
             };
             let extra = if self.remote.is_some() {
-                format!("\nAuto-push: {}", self.auto_push)
+                language.format(
+                    "\nAuto-push: {0}",
+                    &[language.text(if self.auto_push { "yes" } else { "no" })],
+                )
             } else if self.import_path.is_some() {
-                format!(
-                    "\nBranch: {}",
-                    self.model
+                language.format(
+                    "\nBranch: {0}",
+                    &[self
+                        .model
                         .branches
                         .get(self.import_branch)
                         .map(|b| b.branch())
-                        .unwrap_or("none")
+                        .unwrap_or(language.text("none"))],
                 )
             } else {
                 String::new()
             };
             frame.render_widget(
-                Paragraph::new(format!("{text}{extra}")).block(Block::bordered().title(title)),
+                Paragraph::new(format!("{text}{extra}"))
+                    .block(Block::bordered().title(language.text(title))),
                 body,
             );
         } else {
@@ -172,11 +188,11 @@ impl Screen {
                 .iter()
                 .map(|r| {
                     ListItem::new(format!(
-                        "{} {} [{:?}]\n  {}",
+                        "{} {} [{}]\n  {}",
                         if r.running { "●" } else { "○" },
                         r.draft.name,
-                        r.draft.kind,
-                        r.status
+                        r.draft.kind.label(language),
+                        r.status.render(language)
                     ))
                 })
                 .collect();
@@ -184,34 +200,33 @@ impl Screen {
                 ListState::default().with_selected((!rows.is_empty()).then_some(self.selected));
             frame.render_stateful_widget(
                 List::new(rows)
-                    .block(Block::bordered().title("Tasks"))
+                    .block(Block::bordered().title(language.text("Tasks")))
                     .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan)),
                 left,
                 &mut selection,
             );
             let mut detail = String::new();
             if self.remove {
-                detail.push_str("Remove selected local binding? History is retained. y: confirm / Esc: cancel\n\n");
+                detail.push_str(language.text("Remove selected local binding? History is retained. y: confirm / Esc: cancel\n\n"));
             }
             if let Some(plan) = &self.model.plan {
-                detail.push_str(&format!(
-                    "Restore {}\n{}\n",
-                    plan.commit(),
-                    plan.root().display()
+                detail.push_str(&language.format(
+                    "Restore {0}\n{1}\n",
+                    &[plan.commit(), &plan.root().display().to_string()],
                 ));
-                detail.push_str(if self.confirm { "Apply this preview? Existing files are copied to recovery first. y: confirm / Esc: cancel\n" } else { "[: previous file  ]: next file  Enter: contents  R: review confirmation\n" });
+                detail.push_str(language.text(if self.confirm { "Apply this preview? Existing files are copied to recovery first. y: confirm / Esc: cancel\n" } else { "[: previous file  ]: next file  Enter: contents  R: review confirmation\n" }));
                 for (i, entry) in plan.entries().iter().enumerate() {
                     detail.push_str(&format!(
-                        "{} {:?} {}\n",
+                        "{} {} {}\n",
                         if i == self.entry { ">" } else { " " },
-                        entry.change(),
+                        language.text(&format!("{:?}", entry.change())),
                         entry.path()
                     ));
                 }
             } else {
-                detail.push_str(
+                detail.push_str(language.text(
                     "History ([: previous, ]: next; v: restore preview; d: diff to older)\n",
-                );
+                ));
                 for (i, entry) in self.model.history.iter().enumerate() {
                     detail.push_str(&format!(
                         "{} {} {}\n",
@@ -221,7 +236,7 @@ impl Screen {
                     ));
                 }
                 if !self.model.branches.is_empty() {
-                    detail.push_str("\nFetched branches (i: select and import):\n");
+                    detail.push_str(language.text("\nFetched branches (i: select and import):\n"));
                     for branch in &self.model.branches {
                         detail.push_str(&format!(
                             "{}  {}\n",
@@ -232,29 +247,58 @@ impl Screen {
                 }
             }
             detail.push('\n');
-            detail.push_str(&self.model.text);
-            detail.push_str("\n\nActivity\n");
+            detail.push_str(&self.model.text.render(language));
+            detail.push_str(language.text("\n\nActivity\n"));
             for text in self.model.logs.iter().rev().take(20) {
-                detail.push_str(text);
+                detail.push_str(&text.render(language));
                 detail.push('\n');
             }
             frame.render_widget(
                 Paragraph::new(detail)
                     .wrap(Wrap { trim: false })
                     .scroll((self.scroll, 0))
-                    .block(Block::bordered().title("History / Restore / Activity — PgUp/PgDn")),
+                    .block(
+                        Block::bordered()
+                            .title(language.text("History / Restore / Activity — PgUp/PgDn")),
+                    ),
                 right,
             );
         }
-        let status = self.model.error.as_deref().unwrap_or(if self.model.busy {
-            "Working…"
-        } else {
-            "Ready"
-        });
-        frame.render_widget(Paragraph::new(format!("n: new  e: edit  s: start/stop  b: run once  h: history  p: push  x: remove\nu: backup remote  f: fetch  F5: refresh  q: quit  ↑↓: select\n{status}")).style(Style::default().fg(if self.model.error.is_some() { Color::Red } else { Color::Gray })), footer);
+        let status = self
+            .model
+            .error
+            .as_deref()
+            .map(|error| language.error(error))
+            .unwrap_or_else(|| {
+                language
+                    .text(if self.model.busy {
+                        "Working…"
+                    } else {
+                        "Ready"
+                    })
+                    .into()
+            });
+        let shortcuts = language.text("n: new  e: edit  s: start/stop  b: run once  h: history  p: push  x: remove\nu: backup remote  f: fetch  F3: language  F5: refresh  q: quit  ↑↓: select");
+        frame.render_widget(
+            Paragraph::new(format!("{shortcuts}\n{status}")).style(Style::default().fg(
+                if self.model.error.is_some() {
+                    Color::Red
+                } else {
+                    Color::Gray
+                },
+            )),
+            footer,
+        );
     }
 
     fn key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> bool {
+        if key == KeyCode::F(3) {
+            self.model.set_language(match self.model.language {
+                Language::English => Language::Chinese,
+                Language::Chinese => Language::English,
+            });
+            return true;
+        }
         if key == KeyCode::Esc {
             self.draft = None;
             self.remote = None;
@@ -561,6 +605,25 @@ mod tests {
             .collect::<String>();
         assert!(rendered.contains("Upstream mirror"));
         assert!(rendered.contains("Stopped"));
+        screen.key(KeyCode::F(3), KeyModifiers::NONE);
+        assert_eq!(screen.model.language, Language::Chinese);
+        let preferences =
+            std::fs::read_to_string(temp.path().join("data/preferences.json")).unwrap();
+        assert!(preferences.contains("zh-CN"));
+        for (width, height) in [(120, 32), (80, 24)] {
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+            terminal.draw(|frame| screen.draw(frame)).unwrap();
+            let rendered = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            assert!(rendered.contains("Upstream mirror"));
+            assert!(rendered.replace(' ', "").contains("已停止"), "{rendered}");
+        }
         screen.key(KeyCode::Char('e'), KeyModifiers::NONE);
         screen.key(KeyCode::Char('!'), KeyModifiers::NONE);
         screen.key(KeyCode::Char('s'), KeyModifiers::CONTROL);

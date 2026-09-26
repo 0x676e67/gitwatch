@@ -126,6 +126,20 @@ Common TUI shortcuts:
 
 The footer shows the actions available in the current view.
 
+## Language
+
+Source builds support English and Simplified Chinese. This is not yet included in the v0.1.0 release.
+
+```sh
+gitwatch --lang en --help
+gitwatch --lang zh-CN tui
+gitwatch --lang zh-CN desktop
+```
+
+Use the language menu in the desktop app or press `F3` in the TUI to switch languages and save your choice. `--lang` takes priority over `GITWATCH_LANG`, your saved choice and the system language, in that order. Other system languages fall back to English.
+
+Command names, option names and JSON output stay the same in both languages. File contents, paths and messages from Git are kept as they are. The desktop app includes a Chinese font; the TUI uses your terminal's font, which needs Chinese character support.
+
 ## Local data
 
 gitwatch keeps its store in your system's local application data directory. Set `--data-dir <directory>` or `GITWATCH_DATA_DIR` to use another location, separate from the projects you're backing up.
@@ -148,4 +162,4 @@ Pushing a `v<version>` tag publishes a GitHub Release after the checks pass. The
 
 To try the release build without publishing, run **Release** from the Actions tab with `publish` disabled. To publish an existing tag manually, select that tag and enable `publish`. Leave `publish_crate` disabled if you only want the GitHub Release.
 
-Licensed under Apache-2.0. This is an independent Rust implementation inspired by gitwatch; upstream shell code is not included.
+The code is licensed under Apache-2.0. The bundled desktop font is licensed under [OFL-1.1](assets/fonts/OFL.txt); see its [notice](assets/fonts/NOTICE). This is an independent Rust implementation inspired by gitwatch; upstream shell code is not included.
