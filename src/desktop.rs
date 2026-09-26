@@ -1,0 +1,531 @@
+//! Native desktop task management, history and explicit restore previews.
+
+use std::{path::PathBuf, time::Duration};
+
+use eframe::egui::{self, Color32, RichText};
+use uuid::Uuid;
+
+use crate::{
+    Result,
+    interface::{Command, Draft, Kind, Model, lines},
+};
+
+struct Desktop {
+    model: Model,
+    selected: Option<Uuid>,
+    draft: Option<Draft>,
+    history: usize,
+    restore_files: String,
+    confirm: bool,
+    remove: bool,
+    remote: String,
+    auto_push: bool,
+    settings: bool,
+    import_branch: usize,
+    import_path: String,
+}
+
+/// Runs the native desktop interface; Git and filesystem work stays on workers.
+pub fn run(data: Option<PathBuf>) -> Result<()> {
+    let mut model = Model::new(data);
+    // Let eframe's screenshot harness capture a loaded fixture on its second frame.
+    if cfg!(debug_assertions) && std::env::var_os("EFRAME_SCREENSHOT_TO").is_some() {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while model.busy && std::time::Instant::now() < deadline {
+            model.poll();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1140.0, 780.0])
+            .with_min_inner_size([800.0, 560.0]),
+        ..Default::default()
+    };
+    eframe::run_native(
+        "gitwatch",
+        options,
+        Box::new(move |context| {
+            context.egui_ctx.set_visuals(egui::Visuals::dark());
+            Ok(Box::new(Desktop {
+                model,
+                selected: None,
+                draft: None,
+                history: 0,
+                restore_files: String::new(),
+                confirm: false,
+                remove: false,
+                remote: String::new(),
+                auto_push: false,
+                settings: false,
+                import_branch: 0,
+                import_path: String::new(),
+            }))
+        }),
+    )
+    .map_err(|error| anyhow::anyhow!("Desktop failed: {error}"))
+}
+
+impl eframe::App for Desktop {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.paint(ui);
+    }
+}
+
+impl Desktop {
+    fn paint(&mut self, ui: &mut egui::Ui) {
+        self.model.poll();
+        if self.selected.is_none() {
+            self.selected = self.model.rows.first().and_then(|r| r.draft.id);
+        }
+        ui.ctx().request_repaint_after(Duration::from_millis(100));
+        egui::CentralPanel::default().show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.heading(RichText::new("gitwatch").size(28.0));
+                ui.label(RichText::new("Keep a history of your work.").color(Color32::GRAY));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Backup settings").clicked() { self.settings = !self.settings; }
+                    if ui.button("+ Add task").clicked() { self.draft = Some(Draft::default()); }
+                    if ui.add_enabled(!self.model.busy, egui::Button::new("Refresh")).clicked() { self.model.send(Command::Refresh); }
+                });
+            });
+            ui.separator();
+            if self.model.busy { ui.horizontal(|ui| { ui.spinner(); ui.label("Working in background…"); }); }
+            if let Some(error) = &self.model.error { ui.colored_label(Color32::LIGHT_RED, error); }
+            if self.settings { self.settings(ui); ui.separator(); }
+            if self.draft.is_some() { self.form(ui); }
+            else {
+                ui.columns(2, |columns| {
+                    columns[0].heading("Tasks");
+                    columns[0].label("Nothing runs until you start a task.");
+                    egui::ScrollArea::vertical().id_salt("tasks").max_height(470.0).show(&mut columns[0], |ui| {
+                        if self.model.rows.is_empty() { ui.add_space(24.0); ui.label("Add a workspace backup, watch a Git repository, or schedule repository updates."); }
+                        for row in &self.model.rows {
+                            let id = row.draft.id;
+                            egui::Frame::group(ui.style()).show(ui, |ui| {
+                                if ui.selectable_label(self.selected == id, RichText::new(&row.draft.name).strong().size(18.0)).clicked() {
+                                    self.selected = id; self.model.history.clear(); self.model.plan = None; self.model.text.clear(); self.history = 0; self.confirm = false; self.remove = false;
+                                }
+                                ui.label(format!("{:?} · {}", row.draft.kind, if row.running { "Running" } else { "Stopped" }));
+                                ui.label(&row.draft.path);
+                                ui.label(RichText::new(&row.status).small().color(Color32::LIGHT_BLUE));
+                            });
+                        }
+                    });
+                    self.details(&mut columns[1]);
+                });
+            }
+            ui.separator();
+            egui::CollapsingHeader::new("Activity").default_open(true).show(ui, |ui| {
+                egui::ScrollArea::vertical().id_salt("activity").max_height(120.0).stick_to_bottom(true).show(ui, |ui| {
+                    for message in &self.model.logs { ui.label(message); }
+                });
+            });
+        });
+    }
+}
+
+impl Desktop {
+    fn details(&mut self, ui: &mut egui::Ui) {
+        let Some(row) = self.model.rows.iter().find(|r| r.draft.id == self.selected) else {
+            ui.heading("Choose a task");
+            return;
+        };
+        let Some(id) = row.draft.id else {
+            return;
+        };
+        let running = row.running;
+        let kind = row.draft.kind;
+        let draft = row.draft.clone();
+        ui.heading(&draft.name);
+        ui.add_enabled_ui(!self.model.busy, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ui.button(if running { "Stop" } else { "Start" }).clicked() {
+                    self.model.send(if running {
+                        Command::Stop(id)
+                    } else {
+                        Command::Start(id)
+                    });
+                }
+                if ui
+                    .add_enabled(!running, egui::Button::new("Run once"))
+                    .clicked()
+                {
+                    self.model.send(Command::Once(id));
+                }
+                if ui
+                    .add_enabled(!running, egui::Button::new("Edit"))
+                    .clicked()
+                {
+                    self.draft = Some(draft);
+                }
+                if ui
+                    .add_enabled(!running, egui::Button::new("Remove"))
+                    .clicked()
+                {
+                    self.remove = true;
+                }
+                if kind == Kind::Workspace {
+                    if ui.button("History").clicked() {
+                        self.model.send(Command::History(id));
+                    }
+                    if ui.button("Upload").clicked() {
+                        self.model.send(Command::Push(id));
+                    }
+                }
+            });
+            if self.remove {
+                ui.label("Remove this local binding? Backup history will be retained.");
+                ui.horizontal(|ui| {
+                    if ui.button("Remove binding").clicked() {
+                        self.model.send(Command::Remove(id));
+                        self.remove = false;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.remove = false;
+                    }
+                });
+            }
+        });
+        if kind != Kind::Workspace {
+            ui.add_space(16.0);
+            ui.label(if kind == Kind::Pull { "Clones if needed, then pulls at the configured interval. Dirty or divergent repositories require your attention." } else { "Commits changes in the selected Git repository. The task stops automatic writes if the branch changes." });
+            return;
+        }
+        egui::ScrollArea::vertical().id_salt("details").max_height(440.0).show(ui, |ui| {
+            if let Some(plan) = &self.model.plan {
+                ui.separator(); ui.heading("Restore preview");
+                ui.label(format!("Destination: {}", plan.root().display()));
+                ui.label(format!("Version: {}", plan.commit()));
+                let mut command = None;
+                for entry in plan.entries() {
+                    if ui.add_enabled(!self.model.busy, egui::Button::new(format!("{:?}  {}", entry.change(), entry.path()))).clicked() { command = Some(Command::Contents(plan.id(), entry.path().into())); }
+                }
+                if self.confirm {
+                    ui.colored_label(Color32::YELLOW, "This replaces the previewed files. Current files are saved in the local recovery directory first. Extra files are kept.");
+                    if ui.add_enabled(!self.model.busy && !running, egui::Button::new("Confirm restore")).clicked() { command = Some(Command::Restore(plan.id())); self.confirm = false; }
+                } else if ui.add_enabled(!running && !self.model.busy, egui::Button::new("Continue to confirmation")).clicked() { self.confirm = true; }
+                if let Some(command) = command { self.model.send(command); }
+                if ui.button("Close preview").clicked() { self.model.plan = None; self.confirm = false; }
+            } else {
+                ui.separator(); ui.heading("History");
+                for (index, entry) in self.model.history.iter().enumerate() {
+                    if ui.selectable_label(self.history == index, format!("{}  {}", entry.commit().get(..12).unwrap_or(entry.commit()), entry.summary())).clicked() { self.history = index; }
+                }
+                if let Some(entry) = self.model.history.get(self.history) {
+                    let revision = entry.commit().to_owned();
+                    let older = self.model.history.get(self.history + 1).map(|e| e.commit().to_owned());
+                    ui.label("Restore selected paths (one per line; empty means all)");
+                    ui.text_edit_multiline(&mut self.restore_files);
+                    ui.horizontal(|ui| {
+                        if ui.add_enabled(!self.model.busy && !running, egui::Button::new("Preview restore")).clicked() { self.model.send(Command::Preview(id, revision.clone(), lines(&self.restore_files))); }
+                        if let Some(older) = older && ui.add_enabled(!self.model.busy, egui::Button::new("Diff to previous")).clicked() { self.model.send(Command::Diff(id, older, revision)); }
+                    });
+                    if running { ui.label("Stop this task before restoring."); }
+                }
+            }
+            if !self.model.text.is_empty() { ui.separator(); ui.add(egui::TextEdit::multiline(&mut self.model.text).font(egui::TextStyle::Monospace).desired_rows(15).desired_width(f32::INFINITY)); }
+        });
+    }
+
+    fn form(&mut self, ui: &mut egui::Ui) {
+        let Some(draft) = &mut self.draft else {
+            return;
+        };
+        ui.heading(if draft.id.is_some() {
+            "Edit task"
+        } else {
+            "New task"
+        });
+        let mut save = false;
+        let mut cancel = false;
+        egui::ScrollArea::vertical()
+            .id_salt("form")
+            .max_height(510.0)
+            .show(ui, |ui| {
+                ui.add_enabled_ui(draft.id.is_none(), |ui| {
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut draft.kind, Kind::Workspace, "Workspace backup");
+                        if ui
+                            .selectable_value(&mut draft.kind, Kind::Watch, "Git watch")
+                            .changed()
+                        {
+                            draft.remote.clear();
+                        }
+                        ui.selectable_value(&mut draft.kind, Kind::Pull, "Scheduled pull");
+                    });
+                });
+                field(ui, "Name", &mut draft.name);
+                field(ui, "Local path", &mut draft.path);
+                ui.horizontal(|ui| {
+                    if ui.button("Choose folder…").clicked()
+                        && let Some(path) = rfd::FileDialog::new().pick_folder()
+                    {
+                        draft.path = path.to_string_lossy().into_owned();
+                    }
+                    if draft.kind == Kind::Watch
+                        && ui.button("Choose file…").clicked()
+                        && let Some(path) = rfd::FileDialog::new().pick_file()
+                    {
+                        draft.path = path.to_string_lossy().into_owned();
+                    }
+                });
+                if draft.kind == Kind::Workspace {
+                    ui.label("Selected paths, relative to the workspace (one per line)");
+                    ui.text_edit_multiline(&mut draft.includes);
+                    ui.horizontal(|ui| {
+                        if ui.button("Add files…").clicked()
+                            && let Some(files) = rfd::FileDialog::new()
+                                .set_directory(&draft.path)
+                                .pick_files()
+                        {
+                            for file in files {
+                                if let Ok(relative) = file.strip_prefix(&draft.path) {
+                                    draft.includes.push('\n');
+                                    draft
+                                        .includes
+                                        .push_str(&relative.to_string_lossy().replace('\\', "/"));
+                                }
+                            }
+                        }
+                        if ui.button("Add folder…").clicked()
+                            && let Some(file) = rfd::FileDialog::new()
+                                .set_directory(&draft.path)
+                                .pick_folder()
+                            && let Ok(relative) = file.strip_prefix(&draft.path)
+                        {
+                            draft.includes.push('\n');
+                            draft
+                                .includes
+                                .push_str(&relative.to_string_lossy().replace('\\', "/"));
+                        }
+                    });
+                    ui.label("Excluded globs (one per line)");
+                    ui.text_edit_multiline(&mut draft.excludes);
+                    ui.label(
+                        "Source files are read only. Each workspace has its own backup branch.",
+                    );
+                }
+                field(ui, "Branch (optional)", &mut draft.branch);
+                if draft.kind != Kind::Workspace {
+                    field(
+                        ui,
+                        "Remote (empty disables watch upload)",
+                        &mut draft.remote,
+                    );
+                }
+                if draft.kind == Kind::Pull {
+                    field(
+                        ui,
+                        "Clone URL (for an absent or empty destination)",
+                        &mut draft.url,
+                    );
+                    field(ui, "Update interval in seconds", &mut draft.interval);
+                } else if draft.kind == Kind::Watch {
+                    field(ui, "Quiet period in seconds", &mut draft.delay);
+                }
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    save = ui
+                        .add_enabled(!self.model.busy, egui::Button::new("Save task"))
+                        .clicked();
+                    cancel = ui.button("Cancel").clicked();
+                    ui.label("Saving does not start a task.");
+                });
+            });
+        if save {
+            self.model.send(Command::Save(draft.clone()));
+            self.draft = None;
+        }
+        if cancel {
+            self.draft = None;
+        }
+    }
+
+    fn settings(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Workspace backup remote");
+        ui.label("Enter a URL to replace the configured remote. Fetch only reads remote history.");
+        ui.add(
+            egui::TextEdit::singleline(&mut self.remote)
+                .password(true)
+                .hint_text("Remote URL"),
+        );
+        ui.checkbox(&mut self.auto_push, "Upload after each local backup");
+        ui.add_enabled_ui(!self.model.busy, |ui| {
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(!self.remote.is_empty(), egui::Button::new("Save remote"))
+                    .clicked()
+                {
+                    self.model
+                        .send(Command::Remote(self.remote.clone(), self.auto_push));
+                    self.remote.clear();
+                }
+                if ui.button("Fetch workspaces").clicked() {
+                    self.model.send(Command::Fetch);
+                }
+            });
+        });
+        if !self.model.branches.is_empty() {
+            egui::ComboBox::from_label("Workspace branch")
+                .selected_text(
+                    self.model
+                        .branches
+                        .get(self.import_branch)
+                        .map(|b| b.branch())
+                        .unwrap_or("Choose branch"),
+                )
+                .show_ui(ui, |ui| {
+                    for (index, branch) in self.model.branches.iter().enumerate() {
+                        ui.selectable_value(
+                            &mut self.import_branch,
+                            index,
+                            format!("{} — {}", branch.branch(), branch.manifest().name()),
+                        );
+                    }
+                });
+            field(ui, "Bind to local directory", &mut self.import_path);
+            ui.horizontal(|ui| {
+                if ui.button("Choose directory…").clicked()
+                    && let Some(path) = rfd::FileDialog::new().pick_folder()
+                {
+                    self.import_path = path.to_string_lossy().into_owned();
+                }
+                if ui
+                    .add_enabled(
+                        !self.model.busy && !self.import_path.is_empty(),
+                        egui::Button::new("Import paused"),
+                    )
+                    .clicked()
+                    && let Some(branch) = self.model.branches.get(self.import_branch)
+                {
+                    self.model.send(Command::Import(
+                        branch.branch().into(),
+                        self.import_path.clone().into(),
+                    ));
+                }
+            });
+            ui.label("Import creates a local binding. Preview a restore to copy files into your project.");
+        }
+    }
+}
+
+fn field(ui: &mut egui::Ui, label: &str, value: &mut String) {
+    ui.label(label);
+    ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY));
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, time::Instant};
+
+    use super::*;
+
+    fn settle(app: &mut Desktop) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while app.model.busy && Instant::now() < deadline {
+            app.model.poll();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!app.model.busy);
+        assert!(app.model.error.is_none(), "{:?}", app.model.error);
+    }
+
+    fn render(
+        app: &mut Desktop,
+        context: &egui::Context,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
+        let mut output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1140.0, 780.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| app.paint(ui),
+        );
+        output.textures_delta.clear();
+        output
+    }
+
+    fn click(app: &mut Desktop, context: &egui::Context, label: &str) {
+        let output = render(app, context, vec![]);
+        let position = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::epaint::Shape::Text(text) if text.galley.job.text == label => {
+                    Some(text.pos + text.galley.size() / 2.0)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("Missing button: {label}"));
+        for pressed in [true, false] {
+            render(
+                app,
+                context,
+                vec![
+                    egui::Event::PointerMoved(position),
+                    egui::Event::PointerButton {
+                        pos: position,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+    }
+
+    #[test]
+    fn desktop_buttons_drive_backup_preview_and_explicit_restore() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let source = temp.path().join("source");
+        fs::create_dir(&source).unwrap();
+        let file = source.join("notes.md");
+        fs::write(&file, "saved").unwrap();
+        let mut app = Desktop {
+            model: Model::new(Some(temp.path().join("data"))),
+            selected: None,
+            draft: None,
+            history: 0,
+            restore_files: String::new(),
+            confirm: false,
+            remove: false,
+            remote: String::new(),
+            auto_push: false,
+            settings: false,
+            import_branch: 0,
+            import_path: String::new(),
+        };
+        settle(&mut app);
+        let context = egui::Context::default();
+        click(&mut app, &context, "+ Add task");
+        let draft = app.draft.as_mut().unwrap();
+        draft.name = "Desktop notes".into();
+        draft.path = source.to_string_lossy().into_owned();
+        draft.includes = "notes.md".into();
+        click(&mut app, &context, "Save task");
+        settle(&mut app);
+        assert_eq!(app.model.rows.len(), 1);
+        click(&mut app, &context, "Run once");
+        settle(&mut app);
+        click(&mut app, &context, "History");
+        settle(&mut app);
+        assert_eq!(app.model.history.len(), 1);
+        fs::write(&file, "local").unwrap();
+        click(&mut app, &context, "Preview restore");
+        settle(&mut app);
+        assert!(app.model.plan.is_some());
+        assert_eq!(fs::read_to_string(&file).unwrap(), "local");
+        click(&mut app, &context, "Continue to confirmation");
+        assert!(app.confirm);
+        assert_eq!(fs::read_to_string(&file).unwrap(), "local");
+        click(&mut app, &context, "Confirm restore");
+        settle(&mut app);
+        assert_eq!(fs::read_to_string(&file).unwrap(), "saved");
+    }
+}
