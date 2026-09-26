@@ -114,6 +114,9 @@ impl Installation {
             receipt.files.len() == self.files.len(),
             "Release is missing an installed program"
         );
+        for name in receipt.files.keys() {
+            runnable(&extracted.join(name), release.version())?;
+        }
         self.install(&extracted, &receipt)
     }
 
@@ -257,6 +260,23 @@ impl Installation {
         fs::rename(staging.path(), self.directory.join(RECOVERY))?;
         Ok(())
     }
+}
+
+fn runnable(path: &Path, version: &str) -> Result<()> {
+    let mut command = std::process::Command::new(path);
+    command.args(["--lang", "en", "--version"]);
+    let output = crate::git::execute(command, None, std::time::Duration::from_secs(5))
+        .context("The downloaded program cannot run on this system")?;
+    let stdout = std::str::from_utf8(&output.stdout)?;
+    let reported = stdout
+        .trim()
+        .strip_prefix("gitwatch ")
+        .or_else(|| stdout.trim().strip_prefix("gitwatch-desktop "));
+    ensure!(
+        output.code == 0 && reported == Some(version),
+        "The downloaded program cannot run or reports an unexpected version"
+    );
+    Ok(())
 }
 
 fn directory() -> Result<PathBuf> {

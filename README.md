@@ -41,7 +41,7 @@ gitwatch self update --version 0.2.0
 gitwatch self uninstall
 ```
 
-For an installation extracted from an official [GitHub Release](https://github.com/0x676e67/gitwatch/releases), keep `gitwatch-install.json` beside the programs. The updater verifies the download and replaces the installed CLI and desktop together. A standalone CLI can also update itself. Updating uses the official build, including TUI support; it does not preserve custom Cargo feature selections or add a desktop program to a CLI-only installation. Older release folders without an installation receipt need a fresh download first.
+For an installation extracted from an official [GitHub Release](https://github.com/0x676e67/gitwatch/releases), keep `gitwatch-install.json` beside the programs. The updater verifies the download, checks that the new programs can start, then replaces the installed CLI and desktop together. A standalone CLI can also update itself. Updating uses the official build, including TUI support; it does not preserve custom Cargo feature selections or add a desktop program to a CLI-only installation. Older release folders without an installation receipt need a fresh download first.
 
 Stop other gitwatch processes before updating or uninstalling. Both commands list the affected programs and ask for confirmation; use `--yes` in scripts. Uninstall keeps your settings, backup history, recovery data and license notices. For Cargo installations, use `cargo install gitwatch --locked --force` with your original feature options, or `cargo uninstall gitwatch`. Other package-managed installations should use their package manager.
 

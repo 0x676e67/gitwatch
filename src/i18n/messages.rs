@@ -1,6 +1,14 @@
 // English source messages are stable keys. Numbered values are inserted verbatim.
 pub(super) const TEXT: &[(&str, &str)] = &[
     (
+        "The downloaded program cannot run on this system",
+        "下载的程序无法在此系统运行",
+    ),
+    (
+        "The downloaded program cannot run or reports an unexpected version",
+        "下载的程序无法运行，或报告的版本不符合预期",
+    ),
+    (
         "Invalid Cargo installation metadata",
         "Cargo 安装登记信息无效",
     ),
