@@ -151,6 +151,12 @@ impl Desktop {
             .any(|row| row.draft.id == self.selected)
         {
             self.selected = self.model.rows.first().and_then(|r| r.draft.id);
+            self.model.history.clear();
+            self.model.plan = None;
+            self.model.text.clear();
+            self.history = 0;
+            self.confirm = false;
+            self.remove = false;
         }
         ui.ctx().request_repaint_after(Duration::from_millis(100));
         egui::CentralPanel::default().frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(24)).show(ui, |ui| {
@@ -809,5 +815,21 @@ mod tests {
                 .unwrap()
                 .start_in_tray
         );
+        app.model.send(Command::Save(Draft {
+            kind: Kind::Pull,
+            name: "Another repository".into(),
+            path: temp.path().join("checkout").to_string_lossy().into_owned(),
+            ..Draft::default()
+        }));
+        settle(&mut app);
+        assert!(!app.model.history.is_empty());
+        click(&mut app, &context, "Remove");
+        click(&mut app, &context, "Remove binding");
+        settle(&mut app);
+        render(&mut app, &context, vec![]);
+        assert_eq!(app.model.rows.len(), 1);
+        assert_eq!(app.selected, app.model.rows[0].draft.id);
+        assert!(app.model.history.is_empty() && app.model.plan.is_none());
+        assert!(app.model.text.is_empty() && !app.confirm && !app.remove);
     }
 }
