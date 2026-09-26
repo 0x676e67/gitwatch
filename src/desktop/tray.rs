@@ -85,7 +85,6 @@ fn reveal(context: &Context) {
 
 pub(super) fn hide(context: &Context) {
     context.send_viewport_cmd(ViewportCommand::Visible(false));
-    context.send_viewport_cmd(ViewportCommand::Minimized(false));
 }
 
 pub(super) fn close(context: &Context, quitting: bool) {
@@ -127,6 +126,11 @@ mod tests {
             hidden.viewport_output[&eframe::egui::ViewportId::ROOT]
                 .commands
                 .contains(&ViewportCommand::Visible(false))
+        );
+        assert!(
+            !hidden.viewport_output[&eframe::egui::ViewportId::ROOT]
+                .commands
+                .contains(&ViewportCommand::Minimized(false))
         );
         let mut shown = context.run_ui(Default::default(), |ui| reveal(ui.ctx()));
         shown.textures_delta.clear();
