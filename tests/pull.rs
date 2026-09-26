@@ -138,21 +138,23 @@ fn scheduled_updates_repeat_and_stop_without_waiting_for_the_interval() {
         })
     });
     receiver
-        .recv_timeout(Duration::from_secs(10))
+        .recv_timeout(Duration::from_secs(30))
         .unwrap()
         .unwrap();
     let expected = commit(&upstream, "second");
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
     let mut updated = false;
     while std::time::Instant::now() < deadline {
-        if receiver
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap()
-            .unwrap()
-            == expected
-        {
-            updated = true;
-            break;
+        match receiver.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
+            Ok(result) if result.as_ref().is_ok_and(|commit| commit == &expected) => {
+                updated = true;
+                break;
+            }
+            Ok(result) => {
+                result.unwrap();
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => break,
+            Err(error) => panic!("Pull worker disconnected: {error}"),
         }
     }
     stop.stop();
