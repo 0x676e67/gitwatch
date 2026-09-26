@@ -55,6 +55,10 @@ The desktop and TUI show a notice when a newer stable version is available. Inte
 
 The desktop uses one built-in dark theme with consistent spacing and task status colors.
 
+The task list stays visible while you add tasks or change backup settings. Select a task to return to its details. Running pull tasks show the time remaining until their next attempt; a failed attempt waits the same interval before retrying.
+
+Task details include a repository link, its GitHub owner avatar when available, local branches and tags, commit and contributor counts, and the latest commit. History counts cover the local HEAD, including merges; shallow clones show a warning. Git counts text lines in committed files at the same local HEAD, including comments and blank lines. The breakdown groups files by extension; it does not parse programming languages. Binary files are counted separately. Information refreshes in the background while the details are open, or when you click **Refresh information**. Avatar downloads are optional to the display: offline repositories still show their local statistics. These desktop additions are available in the source build and the next release.
+
 ## Watch an existing repository
 
 Point gitwatch at a file or directory inside a Git repository:

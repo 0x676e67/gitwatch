@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
     sync::mpsc::{self, Receiver, Sender},
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, ensure};
@@ -76,6 +76,7 @@ enum Message {
     StartInTray(bool),
     Rows(Vec<Row>),
     Status(Uuid, Text),
+    Schedule(Uuid, Option<Instant>),
     History(Vec<HistoryEntry>),
     Branches(Vec<RemoteWorkspace>),
     Preview(RestorePlan),
@@ -90,6 +91,7 @@ pub(crate) struct Model {
     #[cfg(feature = "desktop")]
     pub start_in_tray: bool,
     pub rows: Vec<Row>,
+    pub pull_schedule: HashMap<Uuid, Option<Instant>>,
     pub history: Vec<HistoryEntry>,
     pub branches: Vec<RemoteWorkspace>,
     pub plan: Option<RestorePlan>,
@@ -241,6 +243,7 @@ impl Model {
             update: None,
             notifications,
             rows: Vec::new(),
+            pull_schedule: HashMap::new(),
             history: Vec::new(),
             branches: Vec::new(),
             plan: None,
@@ -279,6 +282,10 @@ impl Model {
                 #[cfg(feature = "desktop")]
                 Message::StartInTray(enabled) => self.start_in_tray = enabled,
                 Message::Rows(mut rows) => {
+                    self.pull_schedule.retain(|id, _| {
+                        rows.iter()
+                            .any(|row| row.running && row.draft.id == Some(*id))
+                    });
                     for row in &mut rows {
                         if row.running
                             && row.status == Text::from("Running")
@@ -303,6 +310,9 @@ impl Model {
                     self.text.clear();
                 }
                 Message::Text(text) => self.text = text,
+                Message::Schedule(id, next) => {
+                    self.pull_schedule.insert(id, next);
+                }
                 Message::Status(id, text) => {
                     if let Some(row) = self.rows.iter_mut().find(|r| r.draft.id == Some(id)) {
                         row.status = text.clone();
@@ -538,8 +548,9 @@ impl Worker {
                                 token,
                                 report,
                             ),
-                            Kind::Pull => {
-                                PullTask::new(draft.pull_options()?)?.run(token, |result| {
+                            Kind::Pull => PullTask::new(draft.pull_options()?)?.run_scheduled(
+                                token,
+                                |result| {
                                     let text = result
                                         .map(|r| {
                                             Text::format(
@@ -557,8 +568,11 @@ impl Worker {
                                         })
                                         .unwrap_or_else(|e| Text::Error(e.to_string()));
                                     let _ = sender.send(Message::Status(id, text));
-                                })
-                            }
+                                },
+                                |next| {
+                                    let _ = sender.send(Message::Schedule(id, next));
+                                },
+                            ),
                         }
                     })();
                     if let Err(error) = result {
@@ -814,6 +828,36 @@ mod tests {
                 .unwrap()
                 .contains("zh-CN")
         );
+    }
+
+    #[test]
+    fn refreshing_preserves_pull_deadlines_and_stopping_clears_them() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut model = Model::new(Some(temp.path().join("data")));
+        wait(&mut model);
+        command(
+            &mut model,
+            Command::Save(Draft {
+                kind: Kind::Pull,
+                name: "Retry".into(),
+                path: temp.path().join("missing").to_string_lossy().into_owned(),
+                interval: "600".into(),
+                ..Draft::default()
+            }),
+        );
+        let id = model.rows[0].draft.id.unwrap();
+        command(&mut model, Command::Start(id));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while model.pull_schedule.get(&id).copied().flatten().is_none() && Instant::now() < deadline
+        {
+            model.poll();
+            thread::sleep(Duration::from_millis(10));
+        }
+        let next = model.pull_schedule[&id].unwrap();
+        command(&mut model, Command::Refresh);
+        assert_eq!(model.pull_schedule[&id], Some(next));
+        command(&mut model, Command::Stop(id));
+        assert!(!model.pull_schedule.contains_key(&id));
     }
 
     #[test]

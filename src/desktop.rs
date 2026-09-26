@@ -1,5 +1,6 @@
 //! Native desktop task management, history and explicit restore previews.
 
+mod repository;
 mod theme;
 mod tray;
 
@@ -14,8 +15,28 @@ use crate::{
     interface::{Command, Draft, Kind, Model, lines},
 };
 
+fn pull_countdown(next: Option<std::time::Instant>, language: Language) -> String {
+    match next {
+        Some(next) => {
+            let remaining = next.saturating_duration_since(std::time::Instant::now());
+            let seconds = remaining.as_secs() + u64::from(remaining.subsec_nanos() > 0);
+            language.format(
+                "Next pull in {0}",
+                &[&format!(
+                    "{:02}:{:02}:{:02}",
+                    seconds / 3600,
+                    seconds / 60 % 60,
+                    seconds % 60
+                )],
+            )
+        }
+        None => language.text("Pulling…").into(),
+    }
+}
+
 struct Desktop {
     model: Model,
+    repository: repository::Panel,
     tray: Option<tray::Tray>,
     tray_error: Option<String>,
     hide_on_start: bool,
@@ -73,6 +94,7 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
             let hide_on_start = start_in_tray && tray.is_some();
             Ok(Box::new(Desktop {
                 model,
+                repository: repository::Panel::default(),
                 tray,
                 tray_error,
                 hide_on_start,
@@ -122,7 +144,12 @@ impl Desktop {
     fn paint(&mut self, ui: &mut egui::Ui) {
         let language = self.model.language;
         self.model.poll();
-        if self.selected.is_none() {
+        if !self
+            .model
+            .rows
+            .iter()
+            .any(|row| row.draft.id == self.selected)
+        {
             self.selected = self.model.rows.first().and_then(|r| r.draft.id);
         }
         ui.ctx().request_repaint_after(Duration::from_millis(100));
@@ -147,9 +174,9 @@ impl Desktop {
             if selected_language != language { self.model.set_language(selected_language); }
             ui.add_space(10.0);
             ui.horizontal_wrapped(|ui| {
-                    if ui.button(language.text("Backup settings")).clicked() { self.settings = !self.settings; }
-                    if ui.button(language.text("+ Add task")).clicked() { self.draft = Some(Draft::default()); }
-                    if ui.add_enabled(!self.model.busy, egui::Button::new(language.text("Refresh"))).clicked() { self.model.send(Command::Refresh); }
+                    if ui.button(language.text("Backup settings")).clicked() { self.settings = !self.settings; self.draft = None; }
+                    if ui.button(language.text("+ Add task")).clicked() { self.draft = Some(Draft::default()); self.settings = false; }
+                    if ui.add_enabled(!self.model.busy, egui::Button::new(language.text("Refresh"))).clicked() { self.model.send(Command::Refresh); self.repository.refresh(); }
                     if self.tray.is_some() && ui.button(language.text("Minimize to tray")).clicked() { tray::hide(ui.ctx()); }
             });
             ui.add_space(8.0);
@@ -166,9 +193,6 @@ impl Desktop {
             if self.model.busy { ui.horizontal(|ui| { ui.spinner(); ui.label(language.text("Working in background…")); }); }
             if let Some(error) = &self.model.error { ui.colored_label(Color32::LIGHT_RED, language.error(error)); }
             if let Some(error) = &self.tray_error { ui.colored_label(Color32::YELLOW, language.text("System tray unavailable; closing this window will exit.")).on_hover_text(error); }
-            if self.settings { self.settings(ui); ui.separator(); }
-            if self.draft.is_some() { self.form(ui); }
-            else {
                 ui.columns(2, |columns| {
                     columns[0].heading(language.text("Tasks"));
                     columns[0].label(language.text("Nothing runs until you start a task."));
@@ -181,7 +205,7 @@ impl Desktop {
                                 .corner_radius(10).inner_margin(14).show(ui, |ui| {
                                 ui.set_min_width((ui.available_width() - 2.0).max(0.0));
                                 if ui.selectable_label(self.selected == id, RichText::new(&row.draft.name).strong().size(18.0)).clicked() {
-                                    self.selected = id; self.model.history.clear(); self.model.plan = None; self.model.text.clear(); self.history = 0; self.confirm = false; self.remove = false;
+                                    self.selected = id; self.settings = false; self.draft = None; self.model.history.clear(); self.model.plan = None; self.model.text.clear(); self.history = 0; self.confirm = false; self.remove = false;
                                 }
                                 ui.horizontal_wrapped(|ui| {
                                     ui.weak(row.draft.kind.label(language));
@@ -189,13 +213,19 @@ impl Desktop {
                                 });
                                 ui.add(egui::Label::new(RichText::new(&row.draft.path).small().color(theme::MUTED)).wrap());
                                 ui.label(RichText::new(row.status.render(language)).small().color(theme::ACCENT));
+                                if row.draft.kind == Kind::Pull && row.running {
+                                    let next = id.and_then(|id| self.model.pull_schedule.get(&id)).copied().flatten();
+                                    ui.small(pull_countdown(next, language));
+                                }
                             });
                             ui.add_space(6.0);
                         }
                     });
-                    self.details(&mut columns[1]);
+                    if self.settings {
+                        egui::ScrollArea::vertical().id_salt("backup-settings").max_height((columns[1].available_height() - 100.0).max(100.0)).show(&mut columns[1], |ui| self.settings(ui));
+                    } else if self.draft.is_some() { self.form(&mut columns[1]); }
+                    else { self.details(&mut columns[1]); }
                 });
-            }
             ui.separator();
             egui::CollapsingHeader::new(language.text("Activity")).default_open(true).show(ui, |ui| {
                 egui::ScrollArea::vertical().id_salt("activity").max_height(120.0).stick_to_bottom(true).show(ui, |ui| {
@@ -243,6 +273,8 @@ impl Desktop {
         let running = row.running;
         let kind = row.draft.kind;
         let draft = row.draft.clone();
+        let repository_path = draft.path.clone();
+        let repository_remote = draft.remote.clone();
         ui.heading(&draft.name);
         ui.add_enabled_ui(!self.model.busy, |ui| {
             ui.horizontal_wrapped(|ui| {
@@ -300,10 +332,15 @@ impl Desktop {
         });
         if kind != Kind::Workspace {
             ui.add_space(16.0);
-            ui.label(language.text(if kind == Kind::Pull { "Clones if needed, then pulls at the configured interval. Dirty or divergent repositories require your attention." } else { "Commits changes in the selected Git repository. The task stops automatic writes if the branch changes." }));
+            egui::ScrollArea::vertical().id_salt("repository-details").max_height((ui.available_height() - 100.0).max(100.0)).show(ui, |ui| {
+                self.repository.show(ui, &repository_path, &repository_remote, language);
+                ui.add_space(12.0);
+                ui.small(language.text(if kind == Kind::Pull { "Clones if needed, then pulls at the configured interval. Dirty or divergent repositories require your attention." } else { "Commits changes in the selected Git repository. The task stops automatic writes if the branch changes." }));
+            });
             return;
         }
         egui::ScrollArea::vertical().id_salt("details").max_height((ui.available_height() - 100.0).max(100.0)).show(ui, |ui| {
+            egui::CollapsingHeader::new(language.text("Source repository")).show(ui, |ui| self.repository.show(ui, &repository_path, "origin", language));
             if let Some(plan) = &self.model.plan {
                 ui.separator(); ui.heading(language.text("Restore preview"));
                 ui.label(language.format("Destination: {0}", &[&plan.root().display().to_string()]));
@@ -686,6 +723,7 @@ mod tests {
         fs::write(&file, "saved").unwrap();
         let mut app = Desktop {
             model: Model::new(Some(temp.path().join("data"))),
+            repository: repository::Panel::default(),
             tray: None,
             tray_error: None,
             hide_on_start: false,
@@ -729,6 +767,19 @@ mod tests {
         click(&mut app, &context, language.text("Save task"));
         settle(&mut app);
         assert_eq!(app.model.rows.len(), 1);
+        let selected = app.model.rows[0].draft.id;
+        for _ in 0..2 {
+            for action in ["Backup settings", "+ Add task", "Refresh"] {
+                click(&mut app, &context, language.text(action));
+                settle(&mut app);
+                let output = render(&mut app, &context, vec![]);
+                assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::epaint::Shape::Text(text) if text.galley.job.text == "Desktop notes")), "Task must remain visible in {action}");
+                assert_eq!(app.model.rows[0].draft.id, selected);
+            }
+            click(&mut app, &context, "Desktop notes");
+            assert!(!app.settings && app.draft.is_none());
+            assert_eq!(app.selected, selected);
+        }
         click(&mut app, &context, language.text("Run once"));
         settle(&mut app);
         click(&mut app, &context, language.text("History"));

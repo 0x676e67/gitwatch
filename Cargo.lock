@@ -1546,6 +1546,7 @@ dependencies = [
  "flate2",
  "fs2",
  "globset",
+ "image",
  "notify",
  "ratatui",
  "regex",
@@ -1814,6 +1815,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]

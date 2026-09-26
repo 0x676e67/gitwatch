@@ -193,16 +193,24 @@ impl PullTask {
 
     /// Updates immediately, then repeats at the configured interval until stopped.
     /// Failures are reported without discarding the task or local changes.
-    pub fn run(
+    pub fn run(self, stop: StopToken, report: impl FnMut(Result<PullReport>)) -> Result<()> {
+        self.run_scheduled(stop, report, |_| {})
+    }
+
+    /// Reports the actual monotonic deadline, or none while an update is executing.
+    pub(crate) fn run_scheduled(
         mut self,
         stop: StopToken,
         mut report: impl FnMut(Result<PullReport>),
+        mut schedule: impl FnMut(Option<Instant>),
     ) -> Result<()> {
         let mut next = Instant::now();
         while !stop.is_stopped() {
             if Instant::now() >= next {
+                schedule(None);
                 report(self.update());
                 next = Instant::now() + self.options.interval;
+                schedule(Some(next));
             }
             std::thread::sleep(Duration::from_millis(100));
         }
@@ -274,5 +282,43 @@ impl PullTask {
         self.branch = Some(branch);
         self.git = Some(git);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::{Cell, RefCell};
+
+    use super::*;
+
+    #[test]
+    fn schedule_reports_execution_then_the_real_retry_deadline() {
+        let temp = tempfile::tempdir().unwrap();
+        let stop = StopToken::default();
+        let events = RefCell::new(Vec::new());
+        let finished = Cell::new(Instant::now());
+        PullTask::new(
+            PullOptions::new(temp.path().join("missing")).interval(Duration::from_secs(600)),
+        )
+        .unwrap()
+        .run_scheduled(
+            stop.clone(),
+            |result| {
+                assert!(result.is_err());
+                events.borrow_mut().push("result");
+                finished.set(Instant::now());
+            },
+            |next| {
+                if let Some(next) = next {
+                    assert!(next >= finished.get() + Duration::from_secs(600));
+                    events.borrow_mut().push("waiting");
+                    stop.stop();
+                } else {
+                    events.borrow_mut().push("pulling");
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(*events.borrow(), ["pulling", "result", "waiting"]);
     }
 }
