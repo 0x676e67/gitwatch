@@ -158,7 +158,7 @@ impl Desktop {
                 egui::Frame::new().fill(theme::SELECTED).corner_radius(8).inner_margin(12).show(ui, |ui| {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(language.format("gitwatch {0} is available.", &[release.version()]));
-                        ui.monospace("gitwatch self update").on_hover_text(language.text("Close gitwatch, then update from a terminal:"));
+                        ui.monospace("gitwatch self update").on_hover_text(language.text("Choose Quit in the tray menu, then update from a terminal:"));
                         ui.hyperlink_to(language.text("Release notes"), release.url());
                     });
                 });

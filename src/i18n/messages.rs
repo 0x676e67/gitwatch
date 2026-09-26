@@ -108,8 +108,8 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     ("Operation cancelled", "操作已取消"),
     ("Release notes", "更新说明"),
     (
-        "Close gitwatch, then update from a terminal:",
-        "关闭 gitwatch，然后在终端执行更新：",
+        "Choose Quit in the tray menu, then update from a terminal:",
+        "先在托盘菜单选择“退出”，然后在终端执行更新：",
     ),
     (
         "No official release is available for this platform",
