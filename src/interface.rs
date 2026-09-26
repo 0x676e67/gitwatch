@@ -50,6 +50,7 @@ pub(crate) struct Row {
 }
 
 pub(crate) enum Command {
+    Language(Language),
     Refresh,
     Save(Draft),
     Remove(Uuid),
@@ -68,6 +69,7 @@ pub(crate) enum Command {
 }
 
 enum Message {
+    Language(Language),
     Rows(Vec<Row>),
     Status(Uuid, Text),
     History(Vec<HistoryEntry>),
@@ -79,7 +81,6 @@ enum Message {
 
 pub(crate) struct Model {
     pub language: Language,
-    directory: Option<PathBuf>,
     pub rows: Vec<Row>,
     pub history: Vec<HistoryEntry>,
     pub branches: Vec<RemoteWorkspace>,
@@ -186,9 +187,6 @@ impl Model {
     }
 
     pub fn with_language(data: Option<PathBuf>, language: Language) -> Self {
-        let directory = data
-            .clone()
-            .or_else(|| BackupStore::default_directory().ok());
         let (sender, commands) = mpsc::channel();
         let (messages, receiver) = mpsc::channel();
         let stop = StopToken::default();
@@ -233,7 +231,6 @@ impl Model {
             plan: None,
             text: Text::default(),
             language,
-            directory,
             logs: VecDeque::new(),
             busy: true,
             error: None,
@@ -258,6 +255,7 @@ impl Model {
     pub fn poll(&mut self) {
         while let Ok(message) = self.receiver.try_recv() {
             match message {
+                Message::Language(language) => self.language = language,
                 Message::Rows(mut rows) => {
                     for row in &mut rows {
                         if row.running
@@ -305,15 +303,7 @@ impl Model {
     }
 
     pub fn set_language(&mut self, language: Language) {
-        let result = self
-            .directory
-            .as_deref()
-            .context("Cannot locate user data directory")
-            .and_then(|directory| language.save(directory));
-        match result {
-            Ok(()) => self.language = language,
-            Err(error) => self.error = Some(format!("{error:#}")),
-        }
+        self.send(Command::Language(language));
     }
 
     fn log(&mut self, text: Text) {
@@ -405,6 +395,10 @@ impl Worker {
 
     fn command(&mut self, command: Command) -> Result<Text> {
         match command {
+            Command::Language(language) => {
+                language.save(self.store.directory())?;
+                let _ = self.sender.send(Message::Language(language));
+            }
             Command::Refresh => self.refresh()?,
             Command::Save(mut draft) => {
                 ensure!(!draft.name.trim().is_empty(), "Enter a task name");
@@ -769,6 +763,28 @@ mod tests {
         model.send(command);
         wait(model);
         assert!(model.error.is_none(), "{:?}", model.error);
+    }
+
+    #[test]
+    fn language_settings_wait_for_storage_without_blocking_the_interface() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let data = temp.path().join("data");
+        let mut model = Model::new(Some(data.clone()));
+        wait(&mut model);
+        let lock = Lock::acquire(&data.join("store.lock")).unwrap();
+        model.set_language(Language::Chinese);
+        assert!(model.busy);
+        assert!(model.error.is_none());
+        assert_eq!(model.language, Language::English);
+        drop(lock);
+        wait(&mut model);
+        assert!(model.error.is_none(), "{:?}", model.error);
+        assert_eq!(model.language, Language::Chinese);
+        assert!(
+            fs::read_to_string(data.join("preferences.json"))
+                .unwrap()
+                .contains("zh-CN")
+        );
     }
 
     #[test]

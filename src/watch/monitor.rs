@@ -343,6 +343,7 @@ fn run(
             continue;
         }
         if paused {
+            dirty = Some((now, now + options.debounce));
             observed = match job.fingerprint() {
                 Ok(fingerprint) => Some(fingerprint),
                 Err(error) => {
@@ -376,8 +377,12 @@ fn run(
         }) {
             match job.commit() {
                 Ok(event) => {
+                    let deferred =
+                        matches!(&event, Event::Repository(report) if report.skipped().is_some());
                     report(event);
-                    dirty = None;
+                    let now = Instant::now();
+                    dirty =
+                        deferred.then_some((now, now + options.poll.max(Duration::from_secs(1))));
                     last_error.clear();
                     next_retry = Instant::now() + Duration::from_secs(30);
                 }

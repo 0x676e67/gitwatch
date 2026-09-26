@@ -92,6 +92,22 @@ fn switching_remotes_invalidates_previously_fetched_workspace_branches() {
         .set_remote(Some(remote.to_str().unwrap()), false)
         .unwrap();
     producer.push(workspace.id()).unwrap();
+    assert!(matches!(
+        producer.status(workspace.id()).unwrap().unwrap().upload(),
+        UploadState::Synced
+    ));
+    producer
+        .set_remote(Some("https://example.invalid/new-remote.git"), true)
+        .unwrap();
+    assert!(matches!(
+        producer.status(workspace.id()).unwrap().unwrap().upload(),
+        UploadState::Pending
+    ));
+    producer.set_remote(None, false).unwrap();
+    assert!(matches!(
+        producer.status(workspace.id()).unwrap().unwrap().upload(),
+        UploadState::Disabled
+    ));
     let consumer = BackupStore::open(temp.path().join("consumer")).unwrap();
     consumer
         .set_remote(Some(remote.to_str().unwrap()), false)
@@ -102,6 +118,94 @@ fn switching_remotes_invalidates_previously_fetched_workspace_branches() {
         .unwrap();
     assert!(consumer.remote_workspaces().unwrap().is_empty());
     assert!(consumer.import("notes", &root).is_err());
+}
+
+#[test]
+fn workspace_fingerprint_separates_binary_contents_from_following_paths() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("source");
+    fs::create_dir_all(root.join("notes")).unwrap();
+    fs::write(root.join("notes/a"), b"onenotes/b\0\0two").unwrap();
+    let store = BackupStore::open(temp.path().join("data")).unwrap();
+    let workspace = Workspace::builder("binary notes", &root)
+        .include("notes")
+        .build()
+        .unwrap();
+    store.register(workspace.clone()).unwrap();
+    let before = store.fingerprint(workspace.id()).unwrap();
+    fs::write(root.join("notes/a"), b"one").unwrap();
+    fs::write(root.join("notes/b"), b"two").unwrap();
+    assert_ne!(before, store.fingerprint(workspace.id()).unwrap());
+}
+
+#[test]
+fn resuming_a_paused_workspace_backs_up_changes_made_while_paused() {
+    use std::{
+        sync::mpsc,
+        time::{Duration, Instant},
+    };
+
+    use gitwatch::watch::{self, Event, MonitorOptions, StopToken};
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("source");
+    project(&root, "before pause");
+    let store = BackupStore::open(temp.path().join("data")).unwrap();
+    let workspace = workspace(&root, "paused")
+        .edit()
+        .paused(true)
+        .build()
+        .unwrap();
+    let id = workspace.id();
+    store.register(workspace.clone()).unwrap();
+    store.backup(id).unwrap();
+    let stop = StopToken::default();
+    let token = stop.clone();
+    let background = store.clone();
+    let (tx, rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        watch::watch_workspace(
+            background,
+            id,
+            MonitorOptions::default()
+                .native(false)
+                .commit_on_start(true)
+                .poll_interval(Duration::from_millis(50))
+                .debounce(Duration::ZERO),
+            token,
+            |event| {
+                let _ = tx.send(event);
+            },
+        )
+    });
+    assert!(matches!(
+        rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        Event::Watching(_)
+    ));
+    assert!(matches!(
+        rx.recv_timeout(Duration::from_millis(300)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+    fs::write(root.join("AGENTS.md"), "edited while paused").unwrap();
+    store
+        .update(workspace.edit().paused(false).build().unwrap())
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut backed_up = false;
+    while Instant::now() < deadline {
+        if let Ok(Event::Backup(report)) = rx.recv_timeout(Duration::from_millis(100))
+            && report.changed()
+        {
+            backed_up = true;
+            break;
+        }
+    }
+    stop.stop();
+    worker.join().unwrap().unwrap();
+    assert!(backed_up);
+    assert_eq!(
+        git(store.repository(), &["show", "paused:files/AGENTS.md"]),
+        "edited while paused"
+    );
 }
 
 #[test]

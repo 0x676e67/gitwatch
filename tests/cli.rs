@@ -44,6 +44,33 @@ fn help_and_invalid_inputs_have_predictable_exit_codes() {
 }
 
 #[test]
+fn store_initialization_can_retry_after_git_is_unavailable() {
+    let temp = TempDir::new().unwrap();
+    let data = temp.path().join("data");
+    let output = Command::new(env!("CARGO_BIN_EXE_gitwatch"))
+        .args(["--lang", "en", "--data-dir"])
+        .arg(&data)
+        .args(["workspace", "list"])
+        .env("GW_GIT_BIN", temp.path().join("missing-git-executable"))
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let output = cli(&[
+        "--lang",
+        "en",
+        "--data-dir",
+        data.to_str().unwrap(),
+        "workspace",
+        "list",
+    ]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn workspace_json_backup_and_confirmed_restore_round_trip() {
     let temp = TempDir::new().unwrap();
     let source = temp.path().join("project");

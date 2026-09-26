@@ -46,7 +46,9 @@ impl BackupStore {
                 })),
                 "Directory is not an empty gitwatch store"
             );
-            git::init_bare(&data.join("backup.git"))?;
+            let staging = tempfile::tempdir_in(&data)?;
+            git::init_bare(&staging.path().join("backup.git"))?;
+            fs::rename(staging.path().join("backup.git"), data.join("backup.git"))?;
             paths::atomic_write(
                 &config_path,
                 &serde_json::to_vec_pretty(&Config::default())?,
@@ -91,8 +93,10 @@ impl BackupStore {
         let mut hash = Sha256::new();
         hash.update(serde_json::to_vec(workspace)?);
         for (path, file) in scan::collect(workspace)? {
+            hash.update((path.len() as u64).to_le_bytes());
             hash.update(path.as_bytes());
             hash.update([0, u8::from(file.executable)]);
+            hash.update((file.bytes.len() as u64).to_le_bytes());
             hash.update(file.bytes);
         }
         Ok(format!("{:x}", hash.finalize()))
@@ -177,7 +181,8 @@ impl BackupStore {
         } else if config.remote.is_some() {
             self.git.run(["remote", "remove", "origin"])?;
         }
-        if config.remote.as_deref() != remote {
+        let changed = config.remote.as_deref() != remote;
+        if changed {
             let references = self.git.text([
                 "for-each-ref",
                 "--format=%(refname)",
@@ -190,7 +195,26 @@ impl BackupStore {
         }
         config.remote = remote.map(str::to_owned);
         config.auto_push = auto_push && remote.is_some();
-        self.save_config(&config)
+        self.save_config(&config)?;
+        if changed {
+            for workspace in &config.workspaces {
+                let path = self
+                    .data
+                    .join("state")
+                    .join(format!("{}.json", workspace.id));
+                if !path.try_exists()? {
+                    continue;
+                }
+                let mut report: BackupReport = serde_json::from_slice(&paths::read_file(&path)?)?;
+                report.upload = if remote.is_some() {
+                    UploadState::Pending
+                } else {
+                    UploadState::Disabled
+                };
+                self.save_report(&report)?;
+            }
+        }
+        Ok(())
     }
 
     /// Returns remote settings; callers should not put credential-bearing URLs in logs.

@@ -100,13 +100,15 @@ impl Desktop {
             });
             ui.separator();
             let mut selected_language = language;
-            egui::ComboBox::from_id_salt("language")
-                .selected_text(language.name())
-                .show_ui(ui, |ui| {
-                    for choice in [Language::English, Language::Chinese] {
-                        ui.selectable_value(&mut selected_language, choice, choice.name());
-                    }
-                });
+            ui.add_enabled_ui(!self.model.busy, |ui| {
+                egui::ComboBox::from_id_salt("language")
+                    .selected_text(language.name())
+                    .show_ui(ui, |ui| {
+                        for choice in [Language::English, Language::Chinese] {
+                            ui.selectable_value(&mut selected_language, choice, choice.name());
+                        }
+                    });
+            });
             if selected_language != language { self.model.set_language(selected_language); }
             if self.model.busy { ui.horizontal(|ui| { ui.spinner(); ui.label(language.text("Working in background…")); }); }
             if let Some(error) = &self.model.error { ui.colored_label(Color32::LIGHT_RED, language.error(error)); }
@@ -586,6 +588,7 @@ mod tests {
         configure_fonts(&context);
         click(&mut app, &context, "English");
         click(&mut app, &context, "简体中文");
+        settle(&mut app);
         assert_eq!(app.model.language, Language::Chinese);
         let preferences = fs::read_to_string(temp.path().join("data/preferences.json")).unwrap();
         assert!(preferences.contains("zh-CN"));
@@ -620,6 +623,7 @@ mod tests {
         assert_eq!(fs::read_to_string(&file).unwrap(), "saved");
         click(&mut app, &context, "简体中文");
         click(&mut app, &context, "English");
+        settle(&mut app);
         assert_eq!(app.model.language, Language::English);
     }
 }

@@ -606,6 +606,7 @@ mod tests {
         assert!(rendered.contains("Upstream mirror"));
         assert!(rendered.contains("Stopped"));
         screen.key(KeyCode::F(3), KeyModifiers::NONE);
+        settle(&mut screen);
         assert_eq!(screen.model.language, Language::Chinese);
         let preferences =
             std::fs::read_to_string(temp.path().join("data/preferences.json")).unwrap();
