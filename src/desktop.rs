@@ -109,10 +109,9 @@ impl Desktop {
                 egui::Frame::new().fill(theme::SELECTED).corner_radius(8).inner_margin(12).show(ui, |ui| {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(language.format("gitwatch {0} is available.", &[release.version()]));
+                        ui.monospace("gitwatch self update").on_hover_text(language.text("Close gitwatch, then update from a terminal:"));
                         ui.hyperlink_to(language.text("Release notes"), release.url());
                     });
-                    ui.label(language.text("Close gitwatch, then update from a terminal:"));
-                    ui.monospace("gitwatch self update");
                 });
             }
             let mut selected_language = language;
@@ -565,17 +564,28 @@ mod tests {
                 _ => None,
             })
         };
-        let mut position = find(&render(app, context, vec![]));
+        let mut output = render(app, context, vec![]);
+        let mut position = find(&output);
         // At the minimum window size, history and restore controls are scrollable.
         for _ in 0..20 {
             if position.is_some() {
                 break;
             }
-            let output = render(
+            let pointer = output
+                .shapes
+                .iter()
+                .find(|shape| {
+                    matches!(&shape.shape, egui::epaint::Shape::Text(text) if text.pos.x > 400.0)
+                        && shape.clip_rect.min.y > 200.0
+                        && shape.clip_rect.height() > 50.0
+                })
+                .map(|shape| egui::pos2(600.0, shape.clip_rect.center().y))
+                .unwrap_or(egui::pos2(600.0, 340.0));
+            output = render(
                 app,
                 context,
                 vec![
-                    egui::Event::PointerMoved(egui::pos2(600.0, 340.0)),
+                    egui::Event::PointerMoved(pointer),
                     egui::Event::MouseWheel {
                         phase: egui::TouchPhase::Move,
                         unit: egui::MouseWheelUnit::Point,
@@ -626,6 +636,8 @@ mod tests {
             import_path: String::new(),
         };
         settle(&mut app);
+        app.model.update =
+            Some(serde_json::from_value(serde_json::json!({"version":"99.0.0"})).unwrap());
         let context = egui::Context::default();
         theme::apply(&context);
         configure_fonts(&context);
