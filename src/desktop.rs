@@ -1,6 +1,7 @@
 //! Native desktop task management, history and explicit restore previews.
 
 mod theme;
+mod tray;
 
 use std::{path::PathBuf, time::Duration};
 
@@ -15,6 +16,10 @@ use crate::{
 
 struct Desktop {
     model: Model,
+    tray: Option<tray::Tray>,
+    tray_error: Option<String>,
+    hide_on_start: bool,
+    desktop_settings: bool,
     selected: Option<Uuid>,
     draft: Option<Draft>,
     history: usize,
@@ -36,6 +41,10 @@ pub fn run(data: Option<PathBuf>) -> Result<()> {
 
 /// Opens the desktop with an explicit initial language.
 pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()> {
+    let directory = data
+        .clone()
+        .map_or_else(crate::workspace::BackupStore::default_directory, Ok)?;
+    let start_in_tray = crate::preferences::Preferences::load(&directory)?.start_in_tray;
     let mut model = Model::with_language(data, language);
     // Let eframe's screenshot harness capture a loaded fixture on its second frame.
     if cfg!(debug_assertions) && std::env::var_os("EFRAME_SCREENSHOT_TO").is_some() {
@@ -57,8 +66,17 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
         Box::new(move |context| {
             theme::apply(&context.egui_ctx);
             configure_fonts(&context.egui_ctx);
+            let (tray, tray_error) = match tray::Tray::new(language) {
+                Ok(tray) => (Some(tray), None),
+                Err(error) => (None, Some(format!("{error:#}"))),
+            };
+            let hide_on_start = start_in_tray && tray.is_some();
             Ok(Box::new(Desktop {
                 model,
+                tray,
+                tray_error,
+                hide_on_start,
+                desktop_settings: false,
                 selected: None,
                 draft: None,
                 history: 0,
@@ -77,6 +95,24 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
 }
 
 impl eframe::App for Desktop {
+    fn logic(&mut self, context: &egui::Context, _frame: &mut eframe::Frame) {
+        self.model.poll();
+        if let Some(tray) = &mut self.tray {
+            tray.poll(context);
+            tray.set_language(self.model.language);
+            tray::close(context, tray.quitting());
+            if std::mem::take(&mut self.hide_on_start)
+                || context.input(|input| {
+                    input.viewport().minimized == Some(true)
+                        && input.viewport().visible() == Some(true)
+                })
+            {
+                tray::hide(context);
+            }
+        }
+        context.request_repaint_after(Duration::from_millis(250));
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.paint(ui);
     }
@@ -104,6 +140,7 @@ impl Desktop {
                                 }
                             });
                     });
+                    if ui.button(language.text("Settings")).clicked() { self.desktop_settings = !self.desktop_settings; }
                 });
             });
             ui.weak(language.text("Keep a history of your work."));
@@ -113,6 +150,7 @@ impl Desktop {
                     if ui.button(language.text("Backup settings")).clicked() { self.settings = !self.settings; }
                     if ui.button(language.text("+ Add task")).clicked() { self.draft = Some(Draft::default()); }
                     if ui.add_enabled(!self.model.busy, egui::Button::new(language.text("Refresh"))).clicked() { self.model.send(Command::Refresh); }
+                    if self.tray.is_some() && ui.button(language.text("Minimize to tray")).clicked() { tray::hide(ui.ctx()); }
             });
             ui.add_space(8.0);
             ui.separator();
@@ -120,13 +158,14 @@ impl Desktop {
                 egui::Frame::new().fill(theme::SELECTED).corner_radius(8).inner_margin(12).show(ui, |ui| {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(language.format("gitwatch {0} is available.", &[release.version()]));
-                        ui.monospace("gitwatch self update").on_hover_text(language.text("Close gitwatch, then update from a terminal:"));
+                        ui.monospace("gitwatch self update").on_hover_text(language.text("Choose Quit in the tray menu, then update from a terminal:"));
                         ui.hyperlink_to(language.text("Release notes"), release.url());
                     });
                 });
             }
             if self.model.busy { ui.horizontal(|ui| { ui.spinner(); ui.label(language.text("Working in background…")); }); }
             if let Some(error) = &self.model.error { ui.colored_label(Color32::LIGHT_RED, language.error(error)); }
+            if let Some(error) = &self.tray_error { ui.colored_label(Color32::YELLOW, language.text("System tray unavailable; closing this window will exit.")).on_hover_text(error); }
             if self.settings { self.settings(ui); ui.separator(); }
             if self.draft.is_some() { self.form(ui); }
             else {
@@ -164,6 +203,30 @@ impl Desktop {
                 });
             });
         });
+        egui::Window::new(language.text("Desktop settings"))
+            .open(&mut self.desktop_settings)
+            .collapsible(false)
+            .resizable(false)
+            .show(ui.ctx(), |ui| {
+                ui.add_enabled_ui(!self.model.busy, |ui| {
+                    let mut enabled = self.model.start_in_tray;
+                    if ui
+                        .checkbox(&mut enabled, language.text("Start minimized to tray"))
+                        .changed()
+                    {
+                        self.model.send(Command::StartInTray(enabled));
+                    }
+                });
+                ui.label(
+                    language.text(
+                        "Applies the next time you open gitwatch. Tasks still start manually.",
+                    ),
+                );
+                ui.label(language.text("Closing the window keeps tasks running in the tray."));
+                ui.label(language.text(
+                    "Click the tray icon to show the window. Choose Quit in its menu to exit.",
+                ));
+            });
     }
 }
 
@@ -623,6 +686,10 @@ mod tests {
         fs::write(&file, "saved").unwrap();
         let mut app = Desktop {
             model: Model::new(Some(temp.path().join("data"))),
+            tray: None,
+            tray_error: None,
+            hide_on_start: false,
+            desktop_settings: false,
             selected: None,
             draft: None,
             history: 0,
@@ -640,6 +707,7 @@ mod tests {
             Some(serde_json::from_value(serde_json::json!({"version":"99.0.0"})).unwrap());
         let context = egui::Context::default();
         theme::apply(&context);
+        context.all_styles_mut(|style| style.animation_time = 0.0);
         configure_fonts(&context);
         click(&mut app, &context, "English");
         click(&mut app, &context, "简体中文");
@@ -648,6 +716,11 @@ mod tests {
         let preferences = fs::read_to_string(temp.path().join("data/preferences.json")).unwrap();
         assert!(preferences.contains("zh-CN"));
         let language = app.model.language;
+        click(&mut app, &context, language.text("Settings"));
+        click(&mut app, &context, language.text("Start minimized to tray"));
+        settle(&mut app);
+        assert!(app.model.start_in_tray);
+        app.desktop_settings = false;
         click(&mut app, &context, language.text("+ Add task"));
         let draft = app.draft.as_mut().unwrap();
         draft.name = "Desktop notes".into();
@@ -680,5 +753,10 @@ mod tests {
         click(&mut app, &context, "English");
         settle(&mut app);
         assert_eq!(app.model.language, Language::English);
+        assert!(
+            crate::preferences::Preferences::load(&temp.path().join("data"))
+                .unwrap()
+                .start_in_tray
+        );
     }
 }

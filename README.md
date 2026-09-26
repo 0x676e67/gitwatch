@@ -30,6 +30,10 @@ gitwatch desktop
 
 On Linux, building the desktop app also needs the development packages for X11/Wayland, OpenGL and xkbcommon. See the Ubuntu package list in the [CI workflow](.github/workflows/ci.yml). The CLI build doesn't need these desktop dependencies.
 
+In the desktop source build, closing or minimizing the window keeps the app and its running tasks in the system tray. Click the tray icon to reopen the window, or right-click it and choose **Quit** to stop tasks and exit. Under **Settings**, enable **Start minimized to tray** to hide the window on future launches. This setting is off by default and does not start tasks automatically.
+
+On Linux, the tray uses D-Bus StatusNotifierItem without GTK or AppIndicator libraries. Your desktop needs a compatible tray host; GNOME may need a tray extension. If a tray cannot be created, gitwatch shows the window and closing it exits normally. Tray support will be included in the next release; v0.1.0 does not include it.
+
 ## Update or uninstall
 
 The commands below are available in the source build and the next release; v0.1.0 does not include them.
@@ -43,7 +47,7 @@ gitwatch self uninstall
 
 For an installation extracted from an official [GitHub Release](https://github.com/0x676e67/gitwatch/releases), keep `gitwatch-install.json` beside the programs. The updater verifies the download, checks that the new programs can start, then replaces the installed CLI and desktop together. A standalone CLI can also update itself. Updating uses the official build, including TUI support; it does not preserve custom Cargo feature selections or add a desktop program to a CLI-only installation. Older release folders without an installation receipt need a fresh download first.
 
-Stop other gitwatch processes before updating or uninstalling. Both commands list the affected programs and ask for confirmation; use `--yes` in scripts. Uninstall keeps your settings, backup history, recovery data and license notices. For Cargo installations, use `cargo install gitwatch --locked --force` with your original feature options, or `cargo uninstall gitwatch`. Other package-managed installations should use their package manager.
+Stop other gitwatch processes before updating or uninstalling. For the desktop app, choose **Quit** in the tray menu; closing its window leaves it running. Both commands list the affected programs and ask for confirmation; use `--yes` in scripts. Uninstall keeps your settings, backup history, recovery data and license notices. For Cargo installations, use `cargo install gitwatch --locked --force` with your original feature options, or `cargo uninstall gitwatch`. Other package-managed installations should use their package manager.
 
 If an update is interrupted, run `gitwatch self update --recover`. The `.gitwatch-recovery` folder beside the executable holds the previous programs until the operation finishes. If the CLI itself is missing, copy its saved binary back to the installation directory, then run recovery. Updates never downgrade automatically.
 
