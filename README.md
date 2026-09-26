@@ -147,6 +147,10 @@ cargo clippy --all-features --all-targets -- -D warnings
 
 CI checks CLI, TUI, desktop and combined builds on Windows, macOS and Linux. Tests use temporary repositories and local remotes. The terminal UI uses Ratatui; the desktop uses egui/eframe, with the same Rust core behind both.
 
-Tag builds create CLI and desktop archives and a draft GitHub release. They don't publish to crates.io. Native installers, signing, notarization and automatic conflict resolution aren't included in this first version.
+The Release workflow builds versioned archives for Linux x86-64, Windows x86-64 and macOS Apple Silicon, with both binaries and SHA-256 checksums. Git must be installed separately. Native installers, signing, notarization and automatic conflict resolution aren't included in this first version.
+
+Pushing a `v<version>` tag publishes a GitHub Release after the checks pass. The tag must match `Cargo.toml` and point to a commit on `main`. Crates.io uploads use [Trusted Publishing](https://crates.io/docs/trusted-publishing) through `release.yml` and the `crates-io` environment; an already published version is skipped. The first crate version needs to be published locally before configuring that trust.
+
+To try the release build without publishing, run **Release** from the Actions tab with `publish` disabled. To publish an existing tag manually, select that tag and enable `publish`. Leave `publish_crate` disabled if you only want the GitHub Release.
 
 Licensed under Apache-2.0. This is an independent Rust implementation inspired by gitwatch; upstream shell code is not included.
