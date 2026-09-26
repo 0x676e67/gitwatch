@@ -30,6 +30,10 @@ gitwatch desktop
 
 On Linux, building the desktop app also needs the development packages for X11/Wayland, OpenGL and xkbcommon. See the Ubuntu package list in the [CI workflow](.github/workflows/ci.yml). The CLI build doesn't need these desktop dependencies.
 
+In the desktop source build, closing or minimizing the window keeps the app and its running tasks in the system tray. Click the tray icon to reopen the window, or right-click it and choose **Quit** to stop tasks and exit. Under **Settings**, enable **Start minimized to tray** to hide the window on future launches. This setting is off by default and does not start tasks automatically.
+
+On Linux, the tray uses D-Bus StatusNotifierItem without GTK or AppIndicator libraries. Your desktop needs a compatible tray host; GNOME may need a tray extension. If a tray cannot be created, gitwatch shows the window and closing it exits normally. Tray support will be included in the next release; v0.1.0 does not include it.
+
 ## Update or uninstall
 
 The commands below are available in the source build and the next release; v0.1.0 does not include them.

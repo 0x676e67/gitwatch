@@ -4,15 +4,14 @@ mod messages;
 
 use std::{
     ffi::OsString,
-    fmt, fs,
+    fmt,
     path::{Path, PathBuf},
     str::FromStr,
 };
 
-use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-use crate::{Result, git::Lock, paths, workspace::BackupStore};
+use crate::{Result, preferences::Preferences, workspace::BackupStore};
 
 /// A supported display language. Stored data and command names are language independent.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,11 +23,6 @@ pub enum Language {
     /// Simplified Chinese.
     #[serde(rename = "zh-CN")]
     Chinese,
-}
-
-#[derive(Default, Serialize, Deserialize)]
-struct Preferences {
-    language: Option<Language>,
 }
 
 impl Language {
@@ -100,25 +94,12 @@ impl Language {
     }
 
     fn saved(directory: &Path) -> Result<Option<Self>> {
-        let path = directory.join("preferences.json");
-        if !path.try_exists()? {
-            return Ok(None);
-        }
-        let preferences: Preferences = serde_json::from_slice(&paths::read_file(&path)?)
-            .context("Cannot read language preferences")?;
-        Ok(preferences.language)
+        Ok(Preferences::load(directory)?.language)
     }
 
     /// Saves the language in the local store without opening or modifying a Git repository.
     pub fn save(self, directory: &Path) -> Result<()> {
-        fs::create_dir_all(directory)?;
-        let _lock = Lock::acquire(&directory.join("store.lock"))?;
-        paths::atomic_write(
-            &directory.join("preferences.json"),
-            &serde_json::to_vec_pretty(&Preferences {
-                language: Some(self),
-            })?,
-        )
+        Preferences::update(directory, |preferences| preferences.language = Some(self))
     }
 
     /// Looks up a message, falling back to its English source text.

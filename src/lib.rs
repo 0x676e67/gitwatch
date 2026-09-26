@@ -8,6 +8,7 @@
 
 mod git;
 mod paths;
+mod preferences;
 
 #[cfg(feature = "desktop")]
 pub mod desktop;

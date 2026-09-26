@@ -1,5 +1,28 @@
 // English source messages are stable keys. Numbered values are inserted verbatim.
 pub(super) const TEXT: &[(&str, &str)] = &[
+    ("Cannot read local preferences", "无法读取本地设置"),
+    ("Show window", "显示窗口"),
+    ("Quit", "退出"),
+    ("Settings", "设置"),
+    ("Desktop settings", "桌面设置"),
+    ("Minimize to tray", "最小化到托盘"),
+    ("Start minimized to tray", "启动时最小化到托盘"),
+    (
+        "System tray unavailable; closing this window will exit.",
+        "系统托盘不可用，关闭窗口将退出程序。",
+    ),
+    (
+        "Applies the next time you open gitwatch. Tasks still start manually.",
+        "下次启动 gitwatch 时生效，任务仍需手动启动。",
+    ),
+    (
+        "Closing the window keeps tasks running in the tray.",
+        "关闭窗口后，任务会继续在托盘中运行。",
+    ),
+    (
+        "Click the tray icon to show the window. Choose Quit in its menu to exit.",
+        "单击托盘图标显示窗口；右键菜单中选择“退出”以结束程序。",
+    ),
     (
         "The downloaded program cannot run on this system",
         "下载的程序无法在此系统运行",

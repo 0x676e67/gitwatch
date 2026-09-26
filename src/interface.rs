@@ -51,6 +51,8 @@ pub(crate) struct Row {
 
 pub(crate) enum Command {
     Language(Language),
+    #[cfg(feature = "desktop")]
+    StartInTray(bool),
     Refresh,
     Save(Draft),
     Remove(Uuid),
@@ -70,6 +72,8 @@ pub(crate) enum Command {
 
 enum Message {
     Language(Language),
+    #[cfg(feature = "desktop")]
+    StartInTray(bool),
     Rows(Vec<Row>),
     Status(Uuid, Text),
     History(Vec<HistoryEntry>),
@@ -83,6 +87,8 @@ pub(crate) struct Model {
     pub update: Option<crate::update::Release>,
     notifications: crate::update::Notifications,
     pub language: Language,
+    #[cfg(feature = "desktop")]
+    pub start_in_tray: bool,
     pub rows: Vec<Row>,
     pub history: Vec<HistoryEntry>,
     pub branches: Vec<RemoteWorkspace>,
@@ -206,6 +212,10 @@ impl Model {
                     active: HashMap::new(),
                     states: HashMap::new(),
                 };
+                #[cfg(feature = "desktop")]
+                messages.send(Message::StartInTray(
+                    crate::preferences::Preferences::load(worker.store.directory())?.start_in_tray,
+                ))?;
                 worker.refresh()?;
                 let _ = messages.send(Message::Done(Ok(
                     "Ready. Tasks start only when requested.".into()
@@ -237,6 +247,8 @@ impl Model {
             text: Text::default(),
             language,
             logs: VecDeque::new(),
+            #[cfg(feature = "desktop")]
+            start_in_tray: false,
             busy: true,
             error: None,
             sender,
@@ -264,6 +276,8 @@ impl Model {
         while let Ok(message) = self.receiver.try_recv() {
             match message {
                 Message::Language(language) => self.language = language,
+                #[cfg(feature = "desktop")]
+                Message::StartInTray(enabled) => self.start_in_tray = enabled,
                 Message::Rows(mut rows) => {
                     for row in &mut rows {
                         if row.running
@@ -406,6 +420,13 @@ impl Worker {
             Command::Language(language) => {
                 language.save(self.store.directory())?;
                 let _ = self.sender.send(Message::Language(language));
+            }
+            #[cfg(feature = "desktop")]
+            Command::StartInTray(enabled) => {
+                crate::preferences::Preferences::update(self.store.directory(), |preferences| {
+                    preferences.start_in_tray = enabled
+                })?;
+                let _ = self.sender.send(Message::StartInTray(enabled));
             }
             Command::Refresh => self.refresh()?,
             Command::Save(mut draft) => {
