@@ -16,7 +16,6 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     ("Repository", "仓库"),
     ("Refresh information", "刷新信息"),
     ("Repository information unavailable", "暂时无法读取仓库信息"),
-    ("Repository owner on GitHub", "GitHub 仓库所属用户或组织"),
     ("Detached HEAD", "分离的 HEAD"),
     ("Commits", "提交"),
     ("Contributors", "贡献者"),

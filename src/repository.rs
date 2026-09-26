@@ -41,7 +41,7 @@ pub(crate) struct Remote {
 
 #[derive(Default)]
 pub(crate) struct Lines {
-    pub language: String,
+    pub file_type: String,
     pub files: usize,
     pub text: usize,
 }
@@ -170,9 +170,9 @@ impl Summary {
                 self.skipped += 1;
                 continue;
             };
-            let language = file_type(name);
-            let lines = counts.entry(language.clone()).or_insert_with(|| Lines {
-                language,
+            let file_type = file_type(name);
+            let lines = counts.entry(file_type.clone()).or_insert_with(|| Lines {
+                file_type,
                 ..Lines::default()
             });
             lines.files += 1;
@@ -180,7 +180,7 @@ impl Summary {
         }
         self.lines = counts.into_values().collect();
         self.lines
-            .sort_by(|a, b| b.text.cmp(&a.text).then(a.language.cmp(&b.language)));
+            .sort_by(|a, b| b.text.cmp(&a.text).then(a.file_type.cmp(&b.file_type)));
         Ok(())
     }
 }
