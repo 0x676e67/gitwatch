@@ -73,10 +73,18 @@ fn switching_remotes_invalidates_previously_fetched_workspace_branches() {
     let producer = BackupStore::open(temp.path().join("producer")).unwrap();
     let workspace = workspace(&root, "notes");
     producer.register(workspace.clone()).unwrap();
-    producer.backup(workspace.id()).unwrap();
     producer
         .set_remote(Some(remote.to_str().unwrap()), false)
         .unwrap();
+    assert!(
+        producer
+            .push(workspace.id())
+            .unwrap_err()
+            .to_string()
+            .contains("No backup exists yet")
+    );
+    assert!(producer.status(workspace.id()).unwrap().is_none());
+    producer.backup(workspace.id()).unwrap();
     producer.push(workspace.id()).unwrap();
     assert!(matches!(
         producer.status(workspace.id()).unwrap().unwrap().upload(),

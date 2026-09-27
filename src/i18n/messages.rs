@@ -1066,6 +1066,10 @@ pub(super) const TEXT: &[(&str, &str)] = &[
 
 // Existing core errors carry English text. Only known application templates are translated.
 pub(super) const ERRORS: &[(&str, &str)] = &[
+    (
+        "No backup exists yet; run this backup task once before uploading",
+        "尚未生成备份；请先对该备份任务执行一次，再上传",
+    ),
     ("Symbolic link cycle: {}", "符号链接存在循环：{0}"),
     (
         "Selection exceeds 128 directory levels",

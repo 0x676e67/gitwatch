@@ -585,6 +585,10 @@ impl BackupStore {
 
     fn push_locked(&self, workspace: &Workspace) -> Result<()> {
         let reference = workspace.reference();
+        ensure!(
+            self.git.reference(&reference)?.is_some(),
+            "No backup exists yet; run this backup task once before uploading"
+        );
         self.git
             .run(["push", "origin", &format!("{reference}:{reference}")])?;
         Ok(())
