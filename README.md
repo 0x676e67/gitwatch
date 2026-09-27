@@ -1,8 +1,9 @@
 # gitwatch
 
-gitwatch watches your files and commits changes to Git as you work. It can also back up selected files to a separate repository or pull updates on a schedule.
+[![CI](https://github.com/0x676e67/gitwatch/actions/workflows/ci.yml/badge.svg)](https://github.com/0x676e67/gitwatch/actions/workflows/ci.yml)
+![Crates.io Version](https://img.shields.io/crates/v/gitwatch)
 
-Written in Rust and inspired by [gitwatch/gitwatch](https://github.com/gitwatch/gitwatch), it includes a CLI, terminal UI and desktop app for Windows, macOS and Linux.
+gitwatch watches your files and commits changes to Git as you work. It can also back up selected files to a separate repository or pull updates on a schedule.
 
 ## Install
 
@@ -46,4 +47,10 @@ Use the desktop workspace menu or press **F4** in the TUI to keep separate task 
 
 ## License
 
-Code is licensed under [Apache-2.0](LICENSE). The bundled desktop font uses [OFL-1.1](src/fonts/OFL.txt); see its [notice](src/fonts/NOTICE).
+Licensed under either of Apache License, Version 2.0 ([LICENSE](./LICENSE) or http://www.apache.org/licenses/LICENSE-2.0).
+
+The bundled desktop font uses [OFL-1.1](src/fonts/OFL.txt); see its [notice](src/fonts/NOTICE).
+
+## Contribution
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the [Apache-2.0](./LICENSE) license, shall be licensed as above, without any additional terms or conditions.
