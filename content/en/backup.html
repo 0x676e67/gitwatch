@@ -7,18 +7,32 @@ gitwatch workspace backup project-a
 gitwatch workspace watch --all</code></pre>
 <p>Replace these paths and selections with your own. Adding a workspace saves its settings; the <code>backup</code> command makes a single backup, while <code>watch --all</code> keeps watching registered workspaces.</p>
 <h2 id="storage">Branches and file boundaries</h2>
-<p>Each workspace has a stable UUID and a branch named <code>workspaces/&lt;uuid&gt;</code> by default. A backup contains <code>manifest.json</code> and <code>files/&lt;project-relative-path&gt;</code>. Absolute source paths stay in local configuration, so another machine can bind the same backup to a different directory.</p>
-<p>You can select files ignored by the source project's Git rules. Git metadata and known credential or cache paths are still excluded. Symlinks and Windows reparse points are rejected. A scan is limited to 16 MiB per file, 128 MiB of content and 10,000 files.</p>
+<p>Each backup task has a stable internal UUID. New tasks use their name as the backup branch, with whitespace replaced by hyphens: <code>Quic notes</code> becomes <code>Quic-notes</code>. You can set a branch explicitly if the name is not valid in Git. A backup contains <code>manifest.json</code> and <code>files/&lt;project-relative-path&gt;</code>. Absolute source paths stay in local configuration, so another machine can bind the same backup to a different directory.</p>
+<p>You can select files ignored by the source project's Git rules. Git metadata and known credential or cache paths are still excluded. Symbolic links are rejected unless you enable the task option below. Other Windows reparse points remain unsupported. A scan is limited to 16 MiB per file, 128 MiB of content and 10,000 files.</p>
 <div class="callout">If a selected file disappears, its last backup is retained and reported. A missing source directory produces an error instead of a new backup. Workspace backups therefore do not mirror source deletions in the same way as watch mode.</div>
+<h2 id="links">Back up symbolic-link targets</h2>
+<div class="callout">This option is part of the next release. v0.2.0 rejects symbolic links.</div>
+<p>For a backup task, enable <strong>Follow symbolic links</strong> in the desktop form, or use Left/Right on that field in the TUI. This saves the target's actual files under the link's project-relative path, even when the target is outside the project. It does not save the link itself. The source root must still be an ordinary directory.</p>
+<pre><code>gitwatch workspace add ./project --name agents --include .agents --follow-links
+gitwatch workspace edit agents --follow-links true
+gitwatch workspace edit agents --follow-links false</code></pre>
+<p>The option is off by default and stays local to this task; importing a backup does not enable it. Exclusion patterns use the paths visible in your project. Periodic content checks detect changes in external targets. Missing link targets are skipped, and their previously saved files stay in the backup. Cycles, unreadable targets and links into backup storage produce an error without replacing the last backup; credential and cache exclusions still apply.</p>
+<p>Restore previews continue to reject linked destinations. To recover these files without writing through a link, bind the backup to another ordinary directory and preview the restore there. The restored files and directories are ordinary copies.</p>
 <h2 id="remote">Use a remote backup repository</h2>
+<p>Upload creates the first snapshot automatically when this task has no backup yet. If a snapshot already exists, Upload sends that saved history without rescanning the source. Use <strong>Run once</strong> to capture current changes. Failed uploads keep the local snapshot for retry. With automatic uploads enabled, a successful backup also pushes the branch.</p>
 <pre><code>gitwatch workspace remote https://github.com/you/private-backup.git --auto-push
 gitwatch workspace fetch</code></pre>
 <p>Use a repository appropriate for the contents you are backing up. Leave out the remote configuration for local-only backups. Fetch retrieves history without restoring files. Push never uses force; if histories diverge, your local backup remains intact and you must reconcile the histories yourself.</p>
+<h2 id="names">Task names and branch changes</h2>
+<p>Task names are unique within each application workspace, across backup, watch and pull tasks. Names keep their spelling, but comparisons ignore letter case and surrounding whitespace: <code>quic</code> and <code> Quic </code> cannot be two tasks. Separate application workspaces may use the same names.</p>
+<p>Renaming a backup task also renames its local and configured remote branch, keeping earlier commits. Whitespace becomes hyphens; a resulting branch collision is rejected. Remote renames require connectivity and permission to create the new branch and delete the old one. Protected branches and the remote default branch may need changes in repository settings. A conflict leaves the original binding intact. For a change only in letter case, rename through a distinct intermediate name.</p>
+<p>Existing <code>workspaces/&lt;uuid&gt;</code> bindings keep working. To migrate one without changing the task name, edit its Branch field or run:</p>
+<pre><code>gitwatch workspace edit quic --branch quic</code></pre>
 <h2 id="restore">Preview, then restore</h2>
 <p>On another machine, configure the remote and fetch its branches, then bind a workspace to a local directory:</p>
 <pre><code>gitwatch workspace remote https://github.com/you/private-backup.git
 gitwatch workspace fetch
-gitwatch workspace import workspaces/&lt;uuid&gt; ./local-project
+gitwatch workspace import agents ./local-project
 gitwatch workspace history &lt;uuid&gt;
 gitwatch workspace restore &lt;uuid&gt; --preview
 gitwatch workspace restore &lt;uuid&gt; --plan &lt;preview-uuid&gt; --show notes.md
