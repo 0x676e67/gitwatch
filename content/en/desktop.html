@@ -10,7 +10,7 @@
 <h2 id="workspaces">Keep separate task lists</h2>
 <div class="callout">Multi-workspace support is part of the next release. v0.2.0 has a single task list.</div>
 <p>The <strong>Default workspace</strong> is ready to use when you first open the app. Tasks and backup history from v0.2.0 stay there, with their startup settings and pull schedules intact.</p>
-<ol><li>Click <strong>New workspace</strong>.</li><li>Enter a name and the URL of a dedicated backup repository. A remote is required for every custom workspace.</li><li>Save, then choose the new workspace from the menu before adding tasks.</li></ol>
+<ol><li>Click <strong>New workspace</strong>.</li><li>Enter a name and the URL of a dedicated backup repository. A remote is required for every custom workspace. Repository URLs are shown as plain text so you can check and edit them; Git authentication controls access.</li><li>Save, then choose the new workspace from the menu before adding tasks.</li></ol>
 <p>Each workspace has its own task list and backup history. A <strong>Workspace backup</strong> is still a task type: you can add backup, watch and pull tasks to any workspace. The workspace's backup remote is separate from the remote used by a watch or pull task.</p>
 <p>Switching only changes the list you see. Started tasks in other workspaces continue running, and they all resume when you reopen the app. The selected workspace and saved pull deadlines are remembered too.</p>
 <p>The default workspace is local: its backup remote cannot be changed in the interface. An existing remote from an older version is preserved. For a custom workspace, use <strong>Backup settings</strong> to change its remote, choose automatic upload, or fetch and import backup branches.</p>

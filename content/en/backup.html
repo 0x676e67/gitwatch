@@ -8,8 +8,16 @@ gitwatch workspace watch --all</code></pre>
 <p>Replace these paths and selections with your own. Adding a workspace saves its settings; the <code>backup</code> command makes a single backup, while <code>watch --all</code> keeps watching registered workspaces.</p>
 <h2 id="storage">Branches and file boundaries</h2>
 <p>Each workspace has a stable UUID and a branch named <code>workspaces/&lt;uuid&gt;</code> by default. A backup contains <code>manifest.json</code> and <code>files/&lt;project-relative-path&gt;</code>. Absolute source paths stay in local configuration, so another machine can bind the same backup to a different directory.</p>
-<p>You can select files ignored by the source project's Git rules. Git metadata and known credential or cache paths are still excluded. Symlinks and Windows reparse points are rejected. A scan is limited to 16 MiB per file, 128 MiB of content and 10,000 files.</p>
+<p>You can select files ignored by the source project's Git rules. Git metadata and known credential or cache paths are still excluded. Symbolic links are rejected unless you enable the task option below. Other Windows reparse points remain unsupported. A scan is limited to 16 MiB per file, 128 MiB of content and 10,000 files.</p>
 <div class="callout">If a selected file disappears, its last backup is retained and reported. A missing source directory produces an error instead of a new backup. Workspace backups therefore do not mirror source deletions in the same way as watch mode.</div>
+<h2 id="links">Back up symbolic-link targets</h2>
+<div class="callout">This option is part of the next release. v0.2.0 rejects symbolic links.</div>
+<p>For a backup task, enable <strong>Follow symbolic links</strong> in the desktop form, or use Left/Right on that field in the TUI. This saves the target's actual files under the link's project-relative path, even when the target is outside the project. It does not save the link itself. The source root must still be an ordinary directory.</p>
+<pre><code>gitwatch workspace add ./project --name agents --include .agents --follow-links
+gitwatch workspace edit agents --follow-links true
+gitwatch workspace edit agents --follow-links false</code></pre>
+<p>The option is off by default and stays local to this task; importing a backup does not enable it. Exclusion patterns use the paths visible in your project. Periodic content checks detect changes in external targets. Broken links, cycles and links into backup storage produce an error without replacing the last backup; credential and cache exclusions still apply.</p>
+<p>Restore previews continue to reject linked destinations. To recover these files without writing through a link, bind the backup to another ordinary directory and preview the restore there. The restored files and directories are ordinary copies.</p>
 <h2 id="remote">Use a remote backup repository</h2>
 <pre><code>gitwatch workspace remote https://github.com/you/private-backup.git --auto-push
 gitwatch workspace fetch</code></pre>

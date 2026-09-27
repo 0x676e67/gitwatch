@@ -8,8 +8,16 @@ gitwatch workspace watch --all</code></pre>
 <p>请替换成自己的目录与文件选择。添加工作空间只保存设置；<code>backup</code> 执行一次备份，<code>watch --all</code> 则持续监听已注册的工作空间。</p>
 <h2 id="storage">分支与文件边界</h2>
 <p>每个工作空间有稳定的 UUID，默认分支名为 <code>workspaces/&lt;uuid&gt;</code>。备份包含 <code>manifest.json</code> 和 <code>files/&lt;项目相对路径&gt;</code>。源目录的绝对路径只保存在本地配置中，因此另一台设备可以将同一份备份绑定到不同目录。</p>
-<p>可以选择被源项目 Git 规则忽略的文件，但 Git 元数据及已知凭据、缓存路径仍会排除。不接受符号链接或 Windows 重解析点。单文件上限为 16 MiB，一次扫描的内容上限为 128 MiB、文件数量上限为 10,000。</p>
+<p>可以选择被源项目 Git 规则忽略的文件，但 Git 元数据及已知凭据、缓存路径仍会排除。默认不接受符号链接，可以通过下方的任务选项启用；其他 Windows 重解析点仍不支持。单文件上限为 16 MiB，一次扫描的内容上限为 128 MiB、文件数量上限为 10,000。</p>
 <div class="callout">选中的文件消失后，会保留并报告它的最后一次备份。整个源目录不可用时会报错，不创建新备份。因此，工作空间备份与监听模式对源文件删除的处理不同。</div>
+<h2 id="links">备份符号链接目标</h2>
+<div class="callout">此选项将包含在下一次发布中；v0.2.0 不接受符号链接。</div>
+<p>编辑备份任务时，在桌面界面勾选<strong>跟随符号链接</strong>，或在 TUI 的对应字段按左右键切换。启用后，会读取链接目标中的实际文件，并按链接在项目中的相对路径保存；目标可以位于项目外。保存的是内容，不是链接本身。源根目录仍须为普通目录。</p>
+<pre><code>gitwatch workspace add ./project --name agents --include .agents --follow-links
+gitwatch workspace edit agents --follow-links true
+gitwatch workspace edit agents --follow-links false</code></pre>
+<p>此选项默认关闭，只保存在当前任务的本地配置中，导入备份不会自动启用。排除规则使用项目中可见的路径；定期内容检查会发现外部目标的变化。断开的链接、循环链接和指向备份数据的链接会报错，已有备份保持不变；凭据与缓存排除规则仍然生效。</p>
+<p>恢复预览仍会拒绝经过符号链接的目标路径。需要恢复这些内容时，可以先把备份绑定到另一个普通目录，再预览并确认恢复；恢复后得到普通文件和目录，不会通过链接改写原目标。</p>
 <h2 id="remote">配置远程备份仓库</h2>
 <pre><code>gitwatch workspace remote https://github.com/you/private-backup.git --auto-push
 gitwatch workspace fetch</code></pre>
