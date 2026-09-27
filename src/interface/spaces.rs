@@ -298,7 +298,7 @@ impl Sessions {
             self.pending = Some(thread::spawn(move || {
                 let path = paths::joined(&directory, &format!("spaces/{id}"))?;
                 let store = BackupStore::open(&path)?;
-                let _tasks = Lock::acquire(&path.join("tasks.lock"))?;
+                let _tasks = Lock::wait(&path.join("tasks.lock"))?;
                 let _store = store.lock()?;
                 let tasks: Vec<super::Draft> = match paths::read_file(&path.join("tasks.json")) {
                     Ok(bytes) => serde_json::from_slice(&bytes)?,

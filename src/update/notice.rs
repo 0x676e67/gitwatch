@@ -96,6 +96,6 @@ fn cached(directory: &std::path::Path) -> Result<Option<Release>> {
 fn save(directory: &std::path::Path, path: &std::path::Path, cache: &Cache) -> Result<()> {
     // Initialization also takes this lock, so it cannot mistake our temporary file
     // for an unrelated file while checking a new store directory.
-    let _lock = Lock::acquire(&directory.join("store.lock"))?;
+    let _lock = Lock::wait(&directory.join("store.lock"))?;
     paths::atomic_write(path, &serde_json::to_vec(cache)?)
 }

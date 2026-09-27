@@ -1,6 +1,10 @@
 // English source messages are stable keys. Numbered values are inserted verbatim.
 pub(super) const TEXT: &[(&str, &str)] = &[
     (
+        "Cannot lock the gitwatch data store",
+        "无法锁定 gitwatch 数据仓库",
+    ),
+    (
         "Choose History to load saved versions.",
         "点击历史记录，查看已保存的版本。",
     ),
