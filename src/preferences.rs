@@ -1,4 +1,9 @@
-use std::{collections::BTreeSet, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+    time::SystemTime,
+};
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -12,6 +17,7 @@ pub(crate) struct Preferences {
     pub language: Option<Language>,
     pub start_in_tray: bool,
     pub started_tasks: BTreeSet<uuid::Uuid>,
+    pub pull_deadlines: BTreeMap<uuid::Uuid, SystemTime>,
 }
 
 impl Preferences {
@@ -51,8 +57,10 @@ mod tests {
                 .is_empty()
         );
         let id = uuid::Uuid::new_v4();
+        let deadline = SystemTime::now();
         Preferences::update(temp.path(), |value| {
             value.started_tasks.insert(id);
+            value.pull_deadlines.insert(id, deadline);
         })
         .unwrap();
         Preferences::update(temp.path(), |value| value.start_in_tray = true).unwrap();
@@ -61,6 +69,7 @@ mod tests {
         assert!(preferences.start_in_tray);
         assert_eq!(preferences.language, Some(Language::Chinese));
         assert!(preferences.started_tasks.contains(&id));
+        assert_eq!(preferences.pull_deadlines.get(&id), Some(&deadline));
         Preferences::update(temp.path(), |value| value.start_in_tray = false).unwrap();
         assert_eq!(
             Preferences::load(temp.path()).unwrap().language,

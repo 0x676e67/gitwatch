@@ -149,7 +149,7 @@ If a merge or rebase leaves an unfinished operation, the task stops and records 
 
 If you'd rather manage tasks interactively, use `gitwatch tui` or `gitwatch desktop`. Both use the same workspace store as the CLI. Adding a task saves its settings; start it when you're ready. Closing the TUI stops its tasks after any current operation finishes. The desktop app keeps running in the tray when you close its window; choose Quit in the tray menu to stop it. No system service is installed.
 
-The desktop and TUI remember which tasks you started and resume them when you reopen either interface. Click **Stop** to keep a task stopped across restarts. Running a task once does not enable automatic startup, and tasks that stop with a fatal error stay stopped. Scheduled pulls run immediately on reopening, then use their configured interval. Only one task interface can use a data directory at a time.
+The desktop and TUI remember which tasks you started and resume them when you reopen either interface. Click **Stop** to keep a task stopped across restarts. Running a task once does not enable automatic startup, and tasks that stop with a fatal error stay stopped. Scheduled pulls keep their next run time across restarts. If that time has passed, they run once immediately, then use their configured interval. Only one task interface can use a data directory at a time.
 
 In the desktop app, you can choose files and folders, configure tasks, import workspace branches and browse backup history. You can also review file changes before confirming a restore.
 

@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
     sync::mpsc::{self, Receiver, Sender},
     thread::{self, JoinHandle},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use anyhow::{Context, ensure};
@@ -393,6 +393,7 @@ impl Worker {
                 preferences.started_tasks.insert(id);
             } else {
                 preferences.started_tasks.remove(&id);
+                preferences.pull_deadlines.remove(&id);
             }
         })
         .context("Cannot save task startup state")
@@ -583,6 +584,23 @@ impl Worker {
                         .context("Unknown workspace")?;
                     self.store.update(workspace.edit().paused(false).build()?)?;
                 }
+                let resume_at = if draft.kind == Kind::Pull {
+                    Preferences::load(self.store.directory())?
+                        .pull_deadlines
+                        .get(&id)
+                        .map(|deadline| {
+                            Instant::now()
+                                .checked_add(
+                                    deadline
+                                        .duration_since(SystemTime::now())
+                                        .unwrap_or_default(),
+                                )
+                                .context("Pull deadline exceeds the platform clock range")
+                        })
+                        .transpose()?
+                } else {
+                    None
+                };
                 self.remember(id, true)?;
                 let store = self.store.clone();
                 let sender = self.sender.clone();
@@ -609,6 +627,7 @@ impl Worker {
                             ),
                             Kind::Pull => PullTask::new(draft.pull_options()?)?.run_scheduled(
                                 token,
+                                resume_at,
                                 |result| {
                                     let text = result
                                         .map(|r| {
@@ -629,7 +648,19 @@ impl Worker {
                                     let _ = sender.send(Message::Status(id, text));
                                 },
                                 |next| {
+                                    if next.is_none() || next != resume_at {
+                                        let deadline = next.map(|next| SystemTime::now().checked_add(next.saturating_duration_since(Instant::now()))
+                                            .context("Pull deadline exceeds the platform clock range")).transpose()?;
+                                        Preferences::update(store.directory(), |preferences| {
+                                            if let Some(deadline) = deadline.filter(|_| preferences.started_tasks.contains(&id)) {
+                                                preferences.pull_deadlines.insert(id, deadline);
+                                            } else {
+                                                preferences.pull_deadlines.remove(&id);
+                                            }
+                                        }).context("Cannot save pull deadline")?;
+                                    }
                                     let _ = sender.send(Message::Schedule(id, next));
+                                    Ok(())
                                 },
                             ),
                         }
@@ -766,6 +797,7 @@ impl Drop for Worker {
             if !matches!(handle.join(), Ok(Ok(()))) {
                 let result = Preferences::update(self.store.directory(), |preferences| {
                     preferences.started_tasks.remove(&id);
+                    preferences.pull_deadlines.remove(&id);
                 });
                 if let Err(error) = result {
                     let _ = self
@@ -1028,7 +1060,8 @@ mod tests {
     #[test]
     fn refreshing_preserves_pull_deadlines_and_stopping_clears_them() {
         let temp = tempfile::tempdir().unwrap();
-        let mut model = Model::new(Some(temp.path().join("data")));
+        let data = temp.path().join("data");
+        let mut model = Model::new(Some(data.clone()));
         wait(&mut model);
         command(
             &mut model,
@@ -1049,10 +1082,58 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
         let next = model.pull_schedule[&id].unwrap();
+        let saved = Preferences::load(&data).unwrap().pull_deadlines[&id];
         command(&mut model, Command::Refresh);
         assert_eq!(model.pull_schedule[&id], Some(next));
+        drop(model);
+        // Simulate reopening halfway through the interval without waiting five minutes.
+        let remaining = SystemTime::now() + Duration::from_secs(300);
+        Preferences::update(&data, |preferences| {
+            preferences.pull_deadlines.insert(id, remaining);
+        })
+        .unwrap();
+        let mut model = Model::new(Some(data.clone()));
+        wait(&mut model);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while model.pull_schedule.get(&id).copied().flatten().is_none() && Instant::now() < deadline
+        {
+            model.poll();
+            thread::sleep(Duration::from_millis(10));
+        }
+        let left = model.pull_schedule[&id]
+            .unwrap()
+            .saturating_duration_since(Instant::now());
+        assert!(left > Duration::from_secs(290) && left <= Duration::from_secs(300));
+        assert_eq!(
+            Preferences::load(&data).unwrap().pull_deadlines[&id],
+            remaining
+        );
+        assert!(remaining < saved);
+        drop(model);
+        Preferences::update(&data, |preferences| {
+            preferences
+                .pull_deadlines
+                .insert(id, SystemTime::UNIX_EPOCH);
+        })
+        .unwrap();
+        let mut model = Model::new(Some(data.clone()));
+        wait(&mut model);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while model.pull_schedule.get(&id).copied().flatten().is_none() && Instant::now() < deadline
+        {
+            model.poll();
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(model.pull_schedule[&id].unwrap() > Instant::now() + Duration::from_secs(590));
+        assert!(Preferences::load(&data).unwrap().pull_deadlines[&id] > SystemTime::now());
         command(&mut model, Command::Stop(id));
         assert!(!model.pull_schedule.contains_key(&id));
+        assert!(
+            !Preferences::load(&data)
+                .unwrap()
+                .pull_deadlines
+                .contains_key(&id)
+        );
     }
 
     #[test]

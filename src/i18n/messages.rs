@@ -664,6 +664,11 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     ("Task no longer exists", "任务已不存在"),
     ("Enter a task name", "请输入任务名称"),
     ("Cannot save task startup state", "无法保存任务启动状态"),
+    ("Cannot save pull deadline", "无法保存下次拉取时间"),
+    (
+        "Pull deadline exceeds the platform clock range",
+        "下次拉取时间超出了系统时钟范围",
+    ),
     (
         "Another task interface is using this data directory",
         "另一个任务界面正在使用此数据目录",

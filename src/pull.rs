@@ -238,27 +238,31 @@ impl PullTask {
     /// Updates immediately, then repeats at the configured interval until stopped.
     /// Retries ordinary failures; an unfinished Git operation stops the task with an error.
     pub fn run(self, stop: StopToken, report: impl FnMut(Result<PullReport>)) -> Result<()> {
-        self.run_scheduled(stop, report, |_| {})
+        self.run_scheduled(stop, None, report, |_| Ok(()))
     }
 
     /// Reports the actual monotonic deadline, or none while an update is executing.
     pub(crate) fn run_scheduled(
         mut self,
         stop: StopToken,
+        next: Option<Instant>,
         mut report: impl FnMut(Result<PullReport>),
-        mut schedule: impl FnMut(Option<Instant>),
+        mut schedule: impl FnMut(Option<Instant>) -> Result<()>,
     ) -> Result<()> {
-        let mut next = Instant::now();
+        let mut next = next.unwrap_or_else(Instant::now);
+        if next > Instant::now() {
+            schedule(Some(next))?;
+        }
         while !stop.is_stopped() {
             if Instant::now() >= next {
-                schedule(None);
+                schedule(None)?;
                 let result = self.update();
                 if self.blocked {
                     return result.map(|_| ());
                 }
                 report(result);
                 next = Instant::now() + self.options.interval;
-                schedule(Some(next));
+                schedule(Some(next))?;
             }
             std::thread::sleep(Duration::from_millis(100));
         }
@@ -364,31 +368,46 @@ mod tests {
     #[test]
     fn schedule_reports_execution_then_the_real_retry_deadline() {
         let temp = tempfile::tempdir().unwrap();
-        let stop = StopToken::default();
-        let events = RefCell::new(Vec::new());
-        let finished = Cell::new(Instant::now());
-        PullTask::new(
-            PullOptions::new(temp.path().join("missing")).interval(Duration::from_secs(600)),
-        )
-        .unwrap()
-        .run_scheduled(
-            stop.clone(),
-            |result| {
-                assert!(result.is_err());
-                events.borrow_mut().push("result");
-                finished.set(Instant::now());
-            },
-            |next| {
-                if let Some(next) = next {
-                    assert!(next >= finished.get() + Duration::from_secs(600));
-                    events.borrow_mut().push("waiting");
-                    stop.stop();
-                } else {
-                    events.borrow_mut().push("pulling");
-                }
-            },
-        )
-        .unwrap();
-        assert_eq!(*events.borrow(), ["pulling", "result", "waiting"]);
+        for delay in [None, Some(Duration::from_millis(200))] {
+            let stop = StopToken::default();
+            let events = RefCell::new(Vec::new());
+            let finished = Cell::new(Instant::now());
+            let resume_at = delay.map(|delay| Instant::now() + delay);
+            PullTask::new(
+                PullOptions::new(temp.path().join("missing")).interval(Duration::from_secs(600)),
+            )
+            .unwrap()
+            .run_scheduled(
+                stop.clone(),
+                resume_at,
+                |result| {
+                    assert!(result.is_err());
+                    assert!(resume_at.is_none_or(|next| Instant::now() >= next));
+                    events.borrow_mut().push("result");
+                    finished.set(Instant::now());
+                },
+                |next| {
+                    if let Some(next) = next {
+                        if Some(next) == resume_at {
+                            events.borrow_mut().push("resuming");
+                            return Ok(());
+                        }
+                        assert!(next >= finished.get() + Duration::from_secs(600));
+                        events.borrow_mut().push("waiting");
+                        stop.stop();
+                    } else {
+                        events.borrow_mut().push("pulling");
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap();
+            let expected: &[&str] = if resume_at.is_some() {
+                &["resuming", "pulling", "result", "waiting"]
+            } else {
+                &["pulling", "result", "waiting"]
+            };
+            assert_eq!(*events.borrow(), expected);
+        }
     }
 }
