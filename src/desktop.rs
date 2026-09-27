@@ -14,7 +14,7 @@ use self::icons::Icon;
 use crate::{
     Result,
     i18n::Language,
-    interface::{Command, Draft, Kind, Model, lines},
+    interface::{Command, Draft, Kind, Model, lines, spaces::Sessions},
     pull::PullStrategy,
 };
 
@@ -39,6 +39,10 @@ fn pull_countdown(next: Option<std::time::Instant>, language: Language) -> Strin
 
 struct Desktop {
     model: Model,
+    spaces: Sessions,
+    space_form: Option<bool>,
+    space_name: String,
+    space_remote: String,
     repository: repository::Panel,
     tray: Option<tray::Tray>,
     tray_error: Option<String>,
@@ -69,7 +73,7 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
         .clone()
         .map_or_else(crate::workspace::BackupStore::default_directory, Ok)?;
     let start_in_tray = crate::preferences::Preferences::load(&directory)?.start_in_tray;
-    let mut model = Model::with_language(data, language);
+    let (spaces, mut model) = Sessions::new(data, language)?;
     // Let eframe's screenshot harness capture a loaded fixture on its second frame.
     if cfg!(debug_assertions) && std::env::var_os("EFRAME_SCREENSHOT_TO").is_some() {
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
@@ -97,6 +101,10 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
             let hide_on_start = start_in_tray && tray.is_some();
             Ok(Box::new(Desktop {
                 model,
+                spaces,
+                space_form: None,
+                space_name: String::new(),
+                space_remote: String::new(),
                 repository: repository::Panel::default(),
                 tray,
                 tray_error,
@@ -121,7 +129,10 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
 
 impl eframe::App for Desktop {
     fn logic(&mut self, context: &egui::Context, _frame: &mut eframe::Frame) {
-        self.model.poll();
+        if self.spaces.poll(&mut self.model) {
+            self.clear_workspace();
+            egui::DragAndDrop::clear_payload(context);
+        }
         if let Some(tray) = &mut self.tray {
             tray.poll(context);
             tray.set_language(self.model.language);
@@ -144,9 +155,121 @@ impl eframe::App for Desktop {
 }
 
 impl Desktop {
+    fn workspace_controls(&mut self, ui: &mut egui::Ui) {
+        let language = self.model.language;
+        let before = self.spaces.selected();
+        let mut selected = before;
+        ui.add_space(8.0);
+        ui.add_enabled_ui(!self.spaces.busy(), |ui| {
+            ui.horizontal_wrapped(|ui| {
+                egui::ComboBox::from_id_salt("workspace-selector")
+                    .selected_text(self.spaces.label(language))
+                    .show_ui(ui, |ui| {
+                        for space in self.spaces.list() {
+                            ui.selectable_value(&mut selected, space.id, space.label(language));
+                        }
+                    });
+                if ui.button(language.text("New workspace")).clicked() {
+                    self.space_form = Some(true);
+                    self.space_name.clear();
+                    self.space_remote.clear();
+                }
+                if ui
+                    .add_enabled(
+                        !before.is_nil(),
+                        egui::Button::new(language.text("Rename workspace")),
+                    )
+                    .clicked()
+                {
+                    self.space_form = Some(false);
+                    self.space_name = self.spaces.label(language).into();
+                }
+                if ui
+                    .add_enabled(
+                        !before.is_nil() && !self.model.busy && self.model.rows.is_empty(),
+                        egui::Button::new(language.text("Remove workspace")),
+                    )
+                    .on_hover_text(
+                        language.text(
+                            "Only empty workspaces can be removed. Backup data stays on disk.",
+                        ),
+                    )
+                    .clicked()
+                {
+                    self.spaces.remove(&mut self.model);
+                }
+            });
+        });
+        if selected != before {
+            self.spaces.switch(&mut self.model, selected);
+        }
+        if self.spaces.selected() != before {
+            self.clear_workspace();
+            egui::DragAndDrop::clear_payload(ui.ctx());
+        }
+        if self.spaces.busy() {
+            ui.label(language.text("Working in background…"));
+        }
+        if let Some(error) = &self.spaces.error {
+            ui.colored_label(Color32::LIGHT_RED, language.error(error));
+        }
+        if let Some(error) = self.spaces.background_error(language) {
+            ui.colored_label(Color32::LIGHT_RED, error);
+        }
+        if let Some(create) = self.space_form {
+            let mut open = true;
+            let mut save = false;
+            egui::Window::new(language.text(if create { "New workspace" } else { "Rename workspace" }))
+                .open(&mut open).collapsible(false).show(ui.ctx(), |ui| {
+                    field(ui, language.text("Name"), &mut self.space_name);
+                    if create {
+                        ui.label(language.text("Remote repository (required)"));
+                        ui.add(egui::TextEdit::singleline(&mut self.space_remote).password(true));
+                        ui.small(language.text("Each workspace keeps its own tasks and backup history. Switching leaves started tasks running."));
+                    }
+                    save = ui.add_enabled(!self.spaces.busy() && !self.space_name.trim().is_empty() && (!create || !self.space_remote.trim().is_empty()), Icon::Save.button(language.text("Save"))).clicked();
+                });
+            if save {
+                if create {
+                    self.spaces
+                        .create(self.space_name.clone(), self.space_remote.clone());
+                } else {
+                    self.spaces.rename(&self.space_name);
+                }
+                if self.spaces.error.is_none() {
+                    self.space_form = None;
+                }
+            }
+            if !open {
+                self.space_form = None;
+            }
+        }
+    }
+
+    fn clear_workspace(&mut self) {
+        self.selected = None;
+        self.draft = None;
+        self.settings = false;
+        self.space_form = None;
+        self.history = 0;
+        self.confirm = false;
+        self.remove = false;
+        self.restore_files.clear();
+        self.import_path.clear();
+        self.import_branch = 0;
+        self.remote.clear();
+        self.model.plan = None;
+        self.model.history.clear();
+        self.model.text.clear();
+        self.repository = repository::Panel::default();
+    }
+
     fn paint(&mut self, ui: &mut egui::Ui) {
         let language = self.model.language;
-        self.model.poll();
+        if self.spaces.poll(&mut self.model) {
+            self.clear_workspace();
+            egui::DragAndDrop::clear_payload(ui.ctx());
+        }
         if !self
             .model
             .rows
@@ -180,10 +303,11 @@ impl Desktop {
                 });
             });
             ui.weak(language.text("Keep a history of your work."));
-            if selected_language != language { self.model.set_language(selected_language); }
+            if selected_language != language { self.spaces.global(&mut self.model, Command::Language(selected_language)); }
+            self.workspace_controls(ui);
             ui.add_space(10.0);
             ui.horizontal_wrapped(|ui| {
-                    if ui.add(Icon::Backup.button(language.text("Backup settings"))).clicked() { self.settings = !self.settings; self.draft = None; }
+                    if ui.add(Icon::Backup.button(language.text("Backup settings"))).clicked() { self.settings = !self.settings; self.draft = None; self.remote = self.model.remote.clone().unwrap_or_default(); self.auto_push = self.model.auto_push; }
                     if ui.add(Icon::Add.button(language.text("Add task"))).clicked() { self.draft = Some(Draft::default()); self.settings = false; }
                     if ui.add_enabled(!self.model.busy, Icon::Refresh.button(language.text("Refresh"))).clicked() { self.model.send(Command::Refresh); self.repository.refresh(); }
                     if self.tray.is_some() && ui.add(Icon::Tray.button(language.text("Minimize to tray"))).clicked() { tray::hide(ui.ctx()); }
@@ -312,7 +436,8 @@ impl Desktop {
                         .checkbox(&mut enabled, language.text("Start minimized to tray"))
                         .changed()
                     {
-                        self.model.send(Command::StartInTray(enabled));
+                        self.spaces
+                            .global(&mut self.model, Command::StartInTray(enabled));
                     }
                 });
                 ui.label(language.text(
@@ -636,23 +761,32 @@ impl Desktop {
     fn settings(&mut self, ui: &mut egui::Ui) {
         let language = self.model.language;
         ui.heading(language.text("Workspace backup remote"));
-        ui.label(language.text(
-            "Enter a URL to replace the configured remote. Fetch only reads remote history.",
-        ));
-        ui.add(
-            egui::TextEdit::singleline(&mut self.remote)
-                .password(true)
-                .hint_text(language.text("Remote URL")),
-        );
-        ui.checkbox(
-            &mut self.auto_push,
-            language.text("Upload after each local backup"),
-        );
+        let local = self.spaces.selected().is_nil();
+        if local {
+            ui.label(language.text("The default workspace is local. Create another workspace to configure a remote repository."));
+            if self.model.remote.is_some() {
+                ui.label(language.text("The remote from your previous version is preserved."));
+            }
+        }
+        ui.add_enabled_ui(!local, |ui| {
+            ui.label(language.text(
+                "Enter a URL to replace the configured remote. Fetch only reads remote history.",
+            ));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.remote)
+                    .password(true)
+                    .hint_text(language.text("Remote URL")),
+            );
+            ui.checkbox(
+                &mut self.auto_push,
+                language.text("Upload after each local backup"),
+            );
+        });
         ui.add_enabled_ui(!self.model.busy, |ui| {
             ui.horizontal(|ui| {
                 if ui
                     .add_enabled(
-                        !self.remote.is_empty(),
+                        !local && !self.remote.trim().is_empty(),
                         Icon::Save.button(language.text("Save remote")),
                     )
                     .clicked()
@@ -728,8 +862,7 @@ fn configure_fonts(context: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     fonts.font_data.insert(
         "gitwatch-cjk".into(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/GitwatchSansSC-Regular.ttf"))
-            .into(),
+        egui::FontData::from_static(include_bytes!("fonts/GitwatchSansSC-Regular.ttf")).into(),
     );
     for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
         fonts
@@ -759,11 +892,13 @@ mod tests {
 
     fn settle(app: &mut Desktop) {
         let deadline = Instant::now() + Duration::from_secs(10);
-        while app.model.busy && Instant::now() < deadline {
-            app.model.poll();
+        while (app.model.busy || app.spaces.busy()) && Instant::now() < deadline {
+            if app.spaces.poll(&mut app.model) {
+                app.clear_workspace();
+            }
             std::thread::sleep(Duration::from_millis(10));
         }
-        assert!(!app.model.busy);
+        assert!(!app.model.busy && !app.spaces.busy());
         assert!(app.model.error.is_none(), "{:?}", app.model.error);
     }
 
@@ -937,7 +1072,8 @@ mod tests {
         let find = |output: &egui::FullOutput| {
             output.shapes.iter().find_map(|shape| match &shape.shape {
                 egui::epaint::Shape::Text(text) if text.galley.job.text == label => {
-                    Some(text.pos + text.galley.size() / 2.0)
+                    let center = text.pos + text.galley.size() / 2.0;
+                    shape.clip_rect.contains(center).then_some(center)
                 }
                 _ => None,
             })
@@ -972,6 +1108,10 @@ mod tests {
                     },
                 ],
             );
+            // Wait for wheel smoothing before clicking a widget that just scrolled into view.
+            for _ in 0..12 {
+                output = render(app, context, vec![]);
+            }
             position = find(&output);
         }
         let position = position.unwrap_or_else(|| panic!("Missing button: {label}"));
@@ -999,8 +1139,14 @@ mod tests {
         fs::create_dir(&source).unwrap();
         let file = source.join("notes.md");
         fs::write(&file, "saved").unwrap();
+        let (spaces, model) =
+            Sessions::new(Some(temp.path().join("data")), Language::English).unwrap();
         let mut app = Desktop {
-            model: Model::new(Some(temp.path().join("data"))),
+            model,
+            spaces,
+            space_form: None,
+            space_name: String::new(),
+            space_remote: String::new(),
             repository: repository::Panel::default(),
             tray: None,
             tray_error: None,
@@ -1182,6 +1328,32 @@ mod tests {
         drag_task(&mut app, &context, original[0], original[1], false, false);
         assert_eq!(ids(&app), original);
         drag_task(&mut app, &context, original[0], original[1], true, true);
+        assert_eq!(ids(&app), original);
+
+        click(&mut app, &context, "新建工作空间");
+        assert_eq!(app.space_form, Some(true));
+        app.space_name = "Personal".into();
+        app.space_remote = "https://example.invalid/personal.git".into();
+        click(&mut app, &context, "保存");
+        settle(&mut app);
+        assert_eq!(app.spaces.list().len(), 2);
+        click(&mut app, &context, "默认工作空间");
+        click(&mut app, &context, "Personal");
+        settle(&mut app);
+        assert!(app.model.rows.is_empty());
+        assert!(app.model.history.is_empty() && app.model.plan.is_none());
+        assert!(app.selected.is_none() && app.draft.is_none() && !app.settings);
+        click(&mut app, &context, "重命名工作空间");
+        app.space_name = "Private".into();
+        click(&mut app, &context, "保存");
+        assert_eq!(app.spaces.label(Language::English), "Private");
+        click(&mut app, &context, "简体中文");
+        click(&mut app, &context, "English");
+        settle(&mut app);
+        assert_eq!(app.model.language, Language::English);
+        click(&mut app, &context, "Remove workspace");
+        settle(&mut app);
+        assert!(app.spaces.selected().is_nil());
         assert_eq!(ids(&app), original);
     }
 }

@@ -1,3 +1,5 @@
+pub(crate) mod spaces;
+
 use std::{
     collections::{HashMap, VecDeque},
     path::PathBuf,
@@ -52,6 +54,14 @@ pub(crate) struct Row {
     pub status: Text,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    #[cfg(test)]
+    Standalone,
+    Local,
+    Remote,
+}
+
 pub(crate) enum Command {
     Language(Language),
     #[cfg(feature = "desktop")]
@@ -84,6 +94,7 @@ enum Message {
     #[cfg(feature = "desktop")]
     StartInTray(bool),
     Rows(Vec<Row>),
+    Remote(Option<String>, bool),
     Status(Uuid, Text),
     Schedule(Uuid, Option<Instant>),
     History(Vec<HistoryEntry>),
@@ -95,7 +106,9 @@ enum Message {
 
 pub(crate) struct Model {
     pub update: Option<crate::update::Release>,
-    notifications: crate::update::Notifications,
+    notifications: Option<crate::update::Notifications>,
+    pub remote: Option<String>,
+    pub auto_push: bool,
     pub language: Language,
     #[cfg(feature = "desktop")]
     pub start_in_tray: bool,
@@ -116,6 +129,7 @@ pub(crate) struct Model {
 
 struct Worker {
     store: BackupStore,
+    scope: Scope,
     sender: Sender<Message>,
     active: HashMap<Uuid, (StopToken, JoinHandle<Result<()>>)>,
     states: HashMap<Uuid, Text>,
@@ -228,8 +242,14 @@ impl Model {
         Self::with_language(data, Language::English)
     }
 
+    #[cfg(test)]
     pub fn with_language(data: Option<PathBuf>, language: Language) -> Self {
-        let notifications = crate::update::Notifications::start(data.clone());
+        Self::open(data, language, Scope::Standalone)
+    }
+
+    fn open(data: Option<PathBuf>, language: Language, scope: Scope) -> Self {
+        let notifications =
+            (scope != Scope::Remote).then(|| crate::update::Notifications::start(data.clone()));
         let (sender, commands) = mpsc::channel();
         let (messages, receiver) = mpsc::channel();
         let stop = StopToken::default();
@@ -243,8 +263,13 @@ impl Model {
                 let store = BackupStore::open(directory)?;
                 let _lock = Lock::acquire(&store.directory().join("interface.lock"))
                     .context("Another task interface is using this data directory")?;
+                ensure!(
+                    scope != Scope::Remote || store.remote()?.0.is_some(),
+                    "A remote repository is required"
+                );
                 let mut worker = Worker {
                     store,
+                    scope,
                     sender: messages.clone(),
                     active: HashMap::new(),
                     states: HashMap::new(),
@@ -277,6 +302,8 @@ impl Model {
         Self {
             update: None,
             notifications,
+            remote: None,
+            auto_push: false,
             rows: Vec::new(),
             pull_schedule: HashMap::new(),
             history: Vec::new(),
@@ -308,11 +335,15 @@ impl Model {
     }
 
     pub fn poll(&mut self) {
-        if let Some(release) = self.notifications.poll() {
+        if let Some(release) = self.notifications.as_ref().and_then(|notice| notice.poll()) {
             self.update = Some(release);
         }
         while let Ok(message) = self.receiver.try_recv() {
             match message {
+                Message::Remote(remote, auto_push) => {
+                    self.remote = remote;
+                    self.auto_push = auto_push;
+                }
                 Message::Language(language) => self.language = language,
                 #[cfg(feature = "desktop")]
                 Message::StartInTray(enabled) => self.start_in_tray = enabled,
@@ -369,6 +400,7 @@ impl Model {
         }
     }
 
+    #[cfg(test)]
     pub fn set_language(&mut self, language: Language) {
         self.send(Command::Language(language));
     }
@@ -457,6 +489,8 @@ impl Worker {
     }
 
     fn refresh(&self) -> Result<()> {
+        let (remote, auto_push) = self.store.remote()?;
+        let _ = self.sender.send(Message::Remote(remote, auto_push));
         let rows = self
             .drafts()?
             .into_iter()
@@ -670,7 +704,11 @@ impl Worker {
                 let sender = self.sender.clone();
                 let stop = StopToken::default();
                 let token = stop.clone();
+                let (begin, ready) = mpsc::channel();
                 let handle = thread::spawn(move || {
+                    if ready.recv().is_err() {
+                        return Ok(());
+                    }
                     let report = |event| {
                         let _ = sender.send(Message::Status(id, event_text(event)));
                     };
@@ -736,7 +774,10 @@ impl Worker {
                 });
                 self.active.insert(id, (stop, handle));
                 self.states.remove(&id);
-                self.refresh()?;
+                // Publish the running row before its first status or deadline can arrive.
+                let result = self.refresh();
+                let _ = begin.send(());
+                result?;
             }
             Command::Stop(id) => {
                 self.remember(id, false)?;
@@ -781,8 +822,17 @@ impl Worker {
                 return Ok("Uploaded workspace branch".into());
             }
             Command::Remote(url, automatic) => {
+                ensure!(
+                    self.scope != Scope::Local,
+                    "The default workspace is local; its remote cannot be changed"
+                );
+                ensure!(
+                    self.scope != Scope::Remote || !url.trim().is_empty(),
+                    "A remote repository is required"
+                );
                 self.store
                     .set_remote((!url.is_empty()).then_some(url.as_str()), automatic)?;
+                self.refresh()?;
             }
             Command::Fetch => {
                 let _ = self.sender.send(Message::Branches(self.store.fetch()?));
@@ -1060,7 +1110,10 @@ mod tests {
                 if ready {
                     break;
                 }
-                assert!(Instant::now() < deadline, "Task did not start: {status}");
+                assert!(
+                    Instant::now() < deadline,
+                    "{kind:?} task did not start: {status}"
+                );
                 thread::sleep(Duration::from_millis(10));
             }
             let previous_deadline = model.pull_schedule.get(&id).copied().flatten();

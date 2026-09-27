@@ -13,12 +13,18 @@ use ratatui::{
 use crate::{
     Result,
     i18n::Language,
-    interface::{Command, Draft, Kind, Model},
+    interface::{Command, Draft, Kind, Model, spaces::Sessions},
     pull::PullStrategy,
 };
 
 struct Screen {
     model: Model,
+    spaces: Sessions,
+    space_menu: bool,
+    space_index: usize,
+    space_form: Option<bool>,
+    space_name: String,
+    space_remote: String,
     selected: usize,
     history: usize,
     entry: usize,
@@ -42,6 +48,7 @@ pub fn run(data: Option<PathBuf>) -> Result<()> {
 
 /// Opens the terminal interface with an explicit initial language.
 pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()> {
+    let (spaces, model) = Sessions::new(data, language)?;
     let mut terminal = ratatui::try_init()?;
     struct RestoreTerminal;
     impl Drop for RestoreTerminal {
@@ -51,7 +58,13 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
     }
     let _restore = RestoreTerminal;
     let mut screen = Screen {
-        model: Model::with_language(data, language),
+        model,
+        spaces,
+        space_menu: false,
+        space_index: 0,
+        space_form: None,
+        space_name: String::new(),
+        space_remote: String::new(),
         selected: 0,
         history: 0,
         entry: 0,
@@ -67,7 +80,9 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
         auto_push: false,
     };
     loop {
-        screen.model.poll();
+        if screen.spaces.poll(&mut screen.model) {
+            screen.clear_workspace();
+        }
         terminal.draw(|frame| screen.draw(frame))?;
         if !event::poll(Duration::from_millis(100))? {
             continue;
@@ -109,16 +124,64 @@ impl Screen {
                         )
                     })
                     .unwrap_or_else(|| {
-                        language
-                            .text("gitwatch  /  Workspaces · Repository watch · Scheduled pull")
-                            .into()
+                        format!(
+                            "gitwatch / {} — {}",
+                            self.spaces.label(language),
+                            language.text("F4: workspaces")
+                        )
                     }),
             )
             .block(Block::bordered())
             .style(Style::default().fg(Color::Cyan)),
             header,
         );
-        if let Some(draft) = &self.draft {
+        if self.space_menu {
+            let mut text = String::new();
+            if let Some(create) = self.space_form {
+                text.push_str(&format!(
+                    "{} {}: {}\n",
+                    if self.field == 0 { ">" } else { " " },
+                    language.text("Name"),
+                    self.space_name
+                ));
+                if create {
+                    text.push_str(&format!(
+                        "{} {}: {}\n",
+                        if self.field == 1 { ">" } else { " " },
+                        language.text("Remote repository (required)"),
+                        "*".repeat(self.space_remote.chars().count())
+                    ));
+                }
+                text.push_str(language.text("Tab: next field  Ctrl+S: save  Esc: cancel"));
+            } else {
+                for (index, space) in self.spaces.list().iter().enumerate() {
+                    text.push_str(&format!(
+                        "{} {}{}\n",
+                        if index == self.space_index { ">" } else { " " },
+                        space.label(language),
+                        if space.id == self.spaces.selected() {
+                            " *"
+                        } else {
+                            ""
+                        }
+                    ));
+                }
+                text.push_str(language.text("↑↓: select  Enter: switch  n: new  e: rename current  x: remove current  Esc: close"));
+                text.push('\n');
+                text.push_str(
+                    language
+                        .text("Only empty workspaces can be removed. Backup data stays on disk."),
+                );
+                text.push('\n');
+                text.push_str(language.text("Each workspace keeps its own tasks and backup history. Switching leaves started tasks running."));
+            }
+            frame.render_widget(
+                Paragraph::new(text)
+                    .wrap(Wrap { trim: false })
+                    .block(Block::bordered().title(language.text("Workspaces"))),
+                body,
+            );
+        } else if let Some(draft) = &self.draft {
             let all_fields: [(&str, &str); 10] = [
                 ("Name", &draft.name),
                 ("Local path", &draft.path),
@@ -286,13 +349,15 @@ impl Screen {
             );
         }
         let status = self
-            .model
+            .spaces
             .error
-            .as_deref()
+            .as_ref()
+            .or(self.model.error.as_ref())
             .map(|error| language.error(error))
+            .or_else(|| self.spaces.background_error(language))
             .unwrap_or_else(|| {
                 language
-                    .text(if self.model.busy {
+                    .text(if self.model.busy || self.spaces.busy() {
                         "Working…"
                     } else {
                         "Ready"
@@ -314,10 +379,27 @@ impl Screen {
 
     fn key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> bool {
         if key == KeyCode::F(3) {
-            self.model.set_language(match self.model.language {
+            let language = match self.model.language {
                 Language::English => Language::Chinese,
                 Language::Chinese => Language::English,
-            });
+            };
+            self.spaces
+                .global(&mut self.model, Command::Language(language));
+            return true;
+        }
+        if key == KeyCode::F(4) {
+            self.space_menu = true;
+            self.space_index = self
+                .spaces
+                .list()
+                .iter()
+                .position(|space| space.id == self.spaces.selected())
+                .unwrap_or(0);
+            self.space_form = None;
+            return true;
+        }
+        if self.space_menu {
+            self.workspace_key(key, modifiers);
             return true;
         }
         if key == KeyCode::Esc {
@@ -477,7 +559,15 @@ impl Screen {
                 }
             }
             KeyCode::Char('x') => self.remove = id.is_some(),
-            KeyCode::Char('u') => self.remote = Some(String::new()),
+            KeyCode::Char('u') => {
+                if self.spaces.selected().is_nil() {
+                    self.model.error =
+                        Some("The default workspace is local; its remote cannot be changed".into());
+                } else {
+                    self.remote = Some(self.model.remote.clone().unwrap_or_default());
+                    self.auto_push = self.model.auto_push;
+                }
+            }
             KeyCode::Char('f') => self.model.send(Command::Fetch),
             KeyCode::Char('i') => {
                 if !self.model.branches.is_empty() {
@@ -555,6 +645,87 @@ impl Screen {
         self.confirm = false;
         self.remove = false;
     }
+
+    fn workspace_key(&mut self, key: KeyCode, modifiers: KeyModifiers) {
+        if key == KeyCode::Esc {
+            if self.space_form.take().is_none() {
+                self.space_menu = false;
+            }
+            return;
+        }
+        if self.spaces.busy() {
+            return;
+        }
+        if let Some(create) = self.space_form {
+            if key == KeyCode::Char('s') && modifiers.contains(KeyModifiers::CONTROL) {
+                if create {
+                    self.spaces
+                        .create(self.space_name.clone(), self.space_remote.clone());
+                } else {
+                    self.spaces.rename(&self.space_name);
+                }
+                if self.spaces.error.is_none() {
+                    self.space_form = None;
+                }
+            } else if matches!(key, KeyCode::Tab | KeyCode::BackTab) {
+                self.field = if create { 1 - self.field } else { 0 };
+            } else {
+                edit(
+                    if self.field == 0 {
+                        &mut self.space_name
+                    } else {
+                        &mut self.space_remote
+                    },
+                    key,
+                    modifiers,
+                );
+            }
+            return;
+        }
+        let before = self.spaces.selected();
+        match key {
+            KeyCode::Down => {
+                self.space_index =
+                    (self.space_index + 1).min(self.spaces.list().len().saturating_sub(1))
+            }
+            KeyCode::Up => self.space_index = self.space_index.saturating_sub(1),
+            KeyCode::Enter => {
+                if let Some(space) = self.spaces.list().get(self.space_index) {
+                    self.spaces.switch(&mut self.model, space.id);
+                }
+                if self.spaces.error.is_none() {
+                    self.space_menu = false;
+                }
+            }
+            KeyCode::Char('n') => {
+                self.space_form = Some(true);
+                self.space_name.clear();
+                self.space_remote.clear();
+                self.field = 0;
+            }
+            KeyCode::Char('e') if !before.is_nil() => {
+                self.space_form = Some(false);
+                self.space_name = self.spaces.label(self.model.language).into();
+                self.field = 0;
+            }
+            KeyCode::Char('x') => self.spaces.remove(&mut self.model),
+            _ => {}
+        }
+        if self.spaces.selected() != before {
+            self.clear_workspace();
+        }
+    }
+
+    fn clear_workspace(&mut self) {
+        self.selected = 0;
+        self.draft = None;
+        self.remote = None;
+        self.restore_files = None;
+        self.import_path = None;
+        self.import_branch = 0;
+        self.entry = 0;
+        self.clear_detail();
+    }
 }
 
 fn edit(text: &mut String, key: KeyCode, modifiers: KeyModifiers) {
@@ -583,8 +754,16 @@ mod tests {
     #[test]
     fn keyboard_form_saves_a_task_and_renders_its_persisted_name() {
         let temp = tempfile::TempDir::new().unwrap();
+        let (spaces, model) =
+            Sessions::new(Some(temp.path().join("data")), Language::English).unwrap();
         let mut screen = Screen {
-            model: Model::new(Some(temp.path().join("data"))),
+            model,
+            spaces,
+            space_menu: false,
+            space_index: 0,
+            space_form: None,
+            space_name: String::new(),
+            space_remote: String::new(),
             selected: 0,
             history: 0,
             entry: 0,
@@ -601,11 +780,15 @@ mod tests {
         };
         let settle = |screen: &mut Screen| {
             let deadline = std::time::Instant::now() + Duration::from_secs(10);
-            while screen.model.busy && std::time::Instant::now() < deadline {
-                screen.model.poll();
+            while (screen.model.busy || screen.spaces.busy())
+                && std::time::Instant::now() < deadline
+            {
+                if screen.spaces.poll(&mut screen.model) {
+                    screen.clear_workspace();
+                }
                 std::thread::sleep(Duration::from_millis(10));
             }
-            assert!(!screen.model.busy);
+            assert!(!screen.model.busy && !screen.spaces.busy());
             assert!(screen.model.error.is_none(), "{:?}", screen.model.error);
         };
         settle(&mut screen);
@@ -674,6 +857,47 @@ mod tests {
         settle(&mut screen);
         assert_eq!(screen.model.rows.len(), 1);
         assert_eq!(screen.model.rows[0].draft.name, "Upstream mirror!");
+        screen.key(KeyCode::F(4), KeyModifiers::NONE);
+        screen.key(KeyCode::Char('n'), KeyModifiers::NONE);
+        for c in "Private".chars() {
+            screen.key(KeyCode::Char(c), KeyModifiers::NONE);
+        }
+        screen.key(KeyCode::Char('s'), KeyModifiers::CONTROL);
+        assert!(screen.spaces.error.is_some());
+        screen.key(KeyCode::Tab, KeyModifiers::NONE);
+        for c in "https://example.invalid/private.git".chars() {
+            screen.key(KeyCode::Char(c), KeyModifiers::NONE);
+        }
+        screen.key(KeyCode::Char('s'), KeyModifiers::CONTROL);
+        settle(&mut screen);
+        assert_eq!(screen.spaces.list().len(), 2);
+        terminal.draw(|frame| screen.draw(frame)).unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("Private"));
+        screen.key(KeyCode::Down, KeyModifiers::NONE);
+        screen.key(KeyCode::Enter, KeyModifiers::NONE);
+        settle(&mut screen);
+        assert!(screen.model.rows.is_empty() && !screen.space_menu);
+        assert_eq!(screen.spaces.label(Language::English), "Private");
+        screen.key(KeyCode::F(3), KeyModifiers::NONE);
+        settle(&mut screen);
+        assert_eq!(screen.model.language, Language::English);
+        screen.key(KeyCode::F(4), KeyModifiers::NONE);
+        screen.key(KeyCode::Char('e'), KeyModifiers::NONE);
+        screen.key(KeyCode::Char('!'), KeyModifiers::NONE);
+        screen.key(KeyCode::Char('s'), KeyModifiers::CONTROL);
+        assert_eq!(screen.spaces.label(Language::English), "Private!");
+        screen.key(KeyCode::Char('x'), KeyModifiers::NONE);
+        settle(&mut screen);
+        assert!(screen.spaces.selected().is_nil());
+        assert_eq!(screen.model.rows[0].draft.name, "Upstream mirror!");
+        screen.key(KeyCode::Esc, KeyModifiers::NONE);
         assert!(!screen.key(KeyCode::Char('q'), KeyModifiers::NONE));
     }
 }

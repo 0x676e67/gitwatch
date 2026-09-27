@@ -35,6 +35,8 @@ gitwatch workspace backup project
 
 Prefer an interactive interface? Run `gitwatch tui` or `gitwatch desktop` after installing the corresponding features.
 
+Use the desktop workspace menu or press **F4** in the TUI to keep separate task lists. Your existing tasks stay in the default local workspace. New workspaces require a backup remote; switching workspaces leaves started tasks running in the background.
+
 ## Documentation
 
 - [Desktop app](https://gitwatch.dpdns.org/en/desktop.html) and [terminal UI](https://gitwatch.dpdns.org/en/tui.html)
@@ -44,4 +46,4 @@ Prefer an interactive interface? Run `gitwatch tui` or `gitwatch desktop` after 
 
 ## License
 
-Code is licensed under [Apache-2.0](LICENSE). The bundled desktop font uses [OFL-1.1](assets/fonts/OFL.txt); see its [notice](assets/fonts/NOTICE).
+Code is licensed under [Apache-2.0](LICENSE). The bundled desktop font uses [OFL-1.1](src/fonts/OFL.txt); see its [notice](src/fonts/NOTICE).

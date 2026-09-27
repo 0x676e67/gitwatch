@@ -1,5 +1,38 @@
 // English source messages are stable keys. Numbered values are inserted verbatim.
 pub(super) const TEXT: &[(&str, &str)] = &[
+    ("Save", "保存"),
+    ("Workspaces", "工作空间"),
+    ("Default workspace", "默认工作空间"),
+    ("New workspace", "新建工作空间"),
+    ("Rename workspace", "重命名工作空间"),
+    ("Remove workspace", "移除工作空间"),
+    ("Remote repository (required)", "远程仓库（必填）"),
+    ("Creating workspace…", "正在创建工作空间…"),
+    (
+        "Only empty workspaces can be removed. Backup data stays on disk.",
+        "只能移除空工作空间，备份数据仍保留在磁盘上。",
+    ),
+    (
+        "Each workspace keeps its own tasks and backup history. Switching leaves started tasks running.",
+        "每个工作空间独立保存任务和备份历史，切换后已启动的任务继续运行。",
+    ),
+    (
+        "The default workspace is local. Create another workspace to configure a remote repository.",
+        "默认工作空间仅在本地使用；如需配置远程仓库，请创建其他工作空间。",
+    ),
+    (
+        "The remote from your previous version is preserved.",
+        "旧版本已配置的远程仓库会继续保留。",
+    ),
+    ("F4: workspaces", "F4：工作空间"),
+    (
+        "Tab: next field  Ctrl+S: save  Esc: cancel",
+        "Tab：下一项  Ctrl+S：保存  Esc：取消",
+    ),
+    (
+        "↑↓: select  Enter: switch  n: new  e: rename current  x: remove current  Esc: close",
+        "↑↓：选择  Enter：切换  n：新建  e：重命名当前空间  x：移除当前空间  Esc：关闭",
+    ),
     ("Text lines", "文本行数"),
     ("File types", "文件类型"),
     ("File type", "文件类型"),
@@ -1016,6 +1049,45 @@ pub(super) const TEXT: &[(&str, &str)] = &[
 
 // Existing core errors carry English text. Only known application templates are translated.
 pub(super) const ERRORS: &[(&str, &str)] = &[
+    (
+        "The default workspace is local; its remote cannot be changed",
+        "默认工作空间仅在本地使用，不能更改远程仓库",
+    ),
+    (
+        "The default workspace cannot be renamed or removed",
+        "默认工作空间不能重命名或移除",
+    ),
+    ("A remote repository is required", "必须填写远程仓库"),
+    (
+        "Only an empty, idle workspace can be removed",
+        "只能移除没有任务且空闲的工作空间",
+    ),
+    (
+        "Enter a workspace name (1–128 bytes, no control characters)",
+        "请输入工作空间名称（1–128 字节，不含控制字符）",
+    ),
+    (
+        "A workspace with this name already exists",
+        "已存在同名工作空间",
+    ),
+    ("Workspace is unavailable", "工作空间不可用"),
+    ("Workspace creation failed", "创建工作空间失败"),
+    ("Cannot read workspace catalog", "无法读取工作空间清单"),
+    ("Duplicate workspace ID", "工作空间标识重复"),
+    ("Duplicate workspace name", "工作空间名称重复"),
+    (
+        "Workspace data directory is missing",
+        "工作空间数据目录缺失",
+    ),
+    ("Workspace configuration is missing", "工作空间配置缺失"),
+    (
+        "Workspace catalog has an invalid selection or no default workspace",
+        "工作空间清单的选中项无效或缺少默认工作空间",
+    ),
+    (
+        "Cannot roll back workspace creation; data was retained",
+        "无法回滚工作空间创建，数据已保留",
+    ),
     (
         "Symbolic link is not allowed: {}",
         "不允许使用符号链接：{0}",
