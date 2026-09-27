@@ -757,10 +757,10 @@ impl Worker {
                 self.refresh()?;
             }
             Command::Once(id) => {
-                ensure!(
-                    !self.active.contains_key(&id),
-                    "Stop the task before running it once"
-                );
+                if let Some((stop, _)) = self.active.get(&id) {
+                    stop.request_once();
+                    return Ok("Run once requested".into());
+                }
                 let draft = self.find(id)?;
                 let text = match draft.kind {
                     Kind::Workspace => event_text(Event::Backup(self.store.backup(id)?)),
@@ -974,6 +974,154 @@ mod tests {
         model.send(command);
         wait(model);
         assert!(model.error.is_none(), "{:?}", model.error);
+    }
+
+    #[test]
+    fn run_once_preserves_started_state_for_all_task_kinds() {
+        let temp = tempfile::tempdir().unwrap();
+        let git = |root: &std::path::Path, args: &[&str]| {
+            let output = crate::git::base_command()
+                .arg("-C")
+                .arg(root)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).unwrap().trim().to_owned()
+        };
+        for kind in [Kind::Workspace, Kind::Watch, Kind::Pull] {
+            let root = temp.path().join(format!("{kind:?}"));
+            let source = root.join("source");
+            let data = root.join("data");
+            fs::create_dir_all(&source).unwrap();
+            git(&source, &["init", "-b", "main"]);
+            for (key, value) in [
+                ("user.name", "Test"),
+                ("user.email", "test@example.invalid"),
+                ("commit.gpgsign", "false"),
+                ("core.hooksPath", ".disabled-hooks"),
+            ] {
+                git(&source, &["config", key, value]);
+            }
+            let commit = |text: &str| {
+                fs::write(source.join("notes.md"), text).unwrap();
+                git(&source, &["add", "."]);
+                git(
+                    &source,
+                    &[
+                        "-c",
+                        "user.name=Test",
+                        "-c",
+                        "user.email=test@example.invalid",
+                        "-c",
+                        "commit.gpgsign=false",
+                        "commit",
+                        "-m",
+                        text,
+                    ],
+                );
+            };
+            commit("first");
+            let path = if kind == Kind::Pull {
+                root.join("checkout")
+            } else {
+                source.clone()
+            };
+            let mut model = Model::new(Some(data.clone()));
+            wait(&mut model);
+            command(
+                &mut model,
+                Command::Save(Draft {
+                    kind,
+                    name: "Manual task".into(),
+                    path: path.to_string_lossy().into_owned(),
+                    includes: "notes.md".into(),
+                    delay: "60".into(),
+                    interval: "600".into(),
+                    remote: if kind == Kind::Pull {
+                        "origin".into()
+                    } else {
+                        String::new()
+                    },
+                    url: if kind == Kind::Pull {
+                        source.to_string_lossy().into_owned()
+                    } else {
+                        String::new()
+                    },
+                    ..Draft::default()
+                }),
+            );
+            let id = model.rows[0].draft.id.unwrap();
+            command(&mut model, Command::Once(id));
+            assert!(!model.rows[0].running);
+            assert!(Preferences::load(&data).unwrap().started_tasks.is_empty());
+            command(&mut model, Command::Start(id));
+            let deadline = Instant::now() + Duration::from_secs(15);
+            loop {
+                model.poll();
+                let status = model.rows[0].status.render(Language::English);
+                let ready = match kind {
+                    Kind::Workspace => status.starts_with("Local:"),
+                    Kind::Watch => status.starts_with("Watching"),
+                    Kind::Pull => model.pull_schedule.get(&id).is_some_and(Option::is_some),
+                };
+                if ready {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "Task did not start: {status}");
+                thread::sleep(Duration::from_millis(10));
+            }
+            let previous_deadline = model.pull_schedule.get(&id).copied().flatten();
+            if kind == Kind::Pull {
+                commit("second");
+            } else {
+                fs::write(source.join("notes.md"), "second").unwrap();
+            }
+            command(&mut model, Command::Once(id));
+            let deadline = Instant::now() + Duration::from_secs(15);
+            loop {
+                model.poll();
+                let complete = match kind {
+                    Kind::Workspace => {
+                        BackupStore::open(&data)
+                            .unwrap()
+                            .history(id, None, 100)
+                            .unwrap()
+                            .len()
+                            == 2
+                    }
+                    Kind::Watch => git(&source, &["show", "HEAD:notes.md"]) == "second",
+                    Kind::Pull => {
+                        fs::read_to_string(path.join("notes.md")).unwrap() == "second"
+                            && model.pull_schedule.get(&id).copied().flatten() > previous_deadline
+                    }
+                };
+                if complete {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "Manual run did not finish: {:?}",
+                    model.error
+                );
+                thread::sleep(Duration::from_millis(10));
+            }
+            assert!(model.rows[0].running);
+            assert!(
+                Preferences::load(&data)
+                    .unwrap()
+                    .started_tasks
+                    .contains(&id)
+            );
+            command(&mut model, Command::Stop(id));
+            command(&mut model, Command::Once(id));
+            assert!(!model.rows[0].running);
+            assert!(Preferences::load(&data).unwrap().started_tasks.is_empty());
+        }
     }
 
     #[cfg(feature = "desktop")]

@@ -98,7 +98,8 @@ impl Panel {
                         ui.hyperlink_to(commit.id.get(..12).unwrap_or(&commit.id), format!("{}/commit/{}", remote.url.trim_end_matches('/'), commit.id));
                     } else { ui.monospace(commit.id.get(..12).unwrap_or(&commit.id)); }
                     ui.label(&commit.author);
-                    ui.weak(&commit.time);
+                    ui.weak(local_time(&commit.time))
+                        .on_hover_text(language.format("Shown in local time. Original: {0}", &[&commit.time]));
                 });
             }
             ui.separator();
@@ -192,9 +193,37 @@ impl Drop for Panel {
     }
 }
 
+fn local_time(value: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|time| {
+            time.with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string()
+        })
+        .unwrap_or_else(|_| value.to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn commit_times_use_the_system_time_zone_and_keep_invalid_values() {
+        let source = "2026-09-26T07:31:22-07:00";
+        let displayed = local_time(source);
+        assert_eq!(displayed, local_time("2026-09-26T22:31:22+08:00"));
+        let parsed =
+            chrono::NaiveDateTime::parse_from_str(&displayed, "%Y-%m-%d %H:%M:%S").unwrap();
+        assert_eq!(
+            parsed,
+            chrono::DateTime::parse_from_rfc3339(source)
+                .unwrap()
+                .with_timezone(&chrono::Local)
+                .naive_local()
+        );
+        assert_eq!(local_time("unknown"), "unknown");
+        assert_eq!(local_time(""), "");
+    }
 
     #[test]
     fn returning_to_a_previous_selection_does_not_accept_its_cancelled_scan() {

@@ -254,7 +254,7 @@ impl PullTask {
             schedule(Some(next))?;
         }
         while !stop.is_stopped() {
-            if Instant::now() >= next {
+            if stop.take_once() || Instant::now() >= next {
                 schedule(None)?;
                 let result = self.update();
                 if self.blocked {
@@ -364,6 +364,57 @@ mod tests {
     use std::cell::{Cell, RefCell};
 
     use super::*;
+
+    #[test]
+    fn manual_requests_interrupt_waiting_and_coalesce_between_updates() {
+        let temp = tempfile::tempdir().unwrap();
+        let stop = StopToken::default();
+        let (finished, completion) = std::sync::mpsc::channel();
+        let token = stop.clone();
+        let watchdog = std::thread::spawn(move || {
+            if completion.recv_timeout(Duration::from_secs(10)).is_err() {
+                token.stop();
+            }
+        });
+        let reports = Cell::new(0);
+        let resume_at = Instant::now() + Duration::from_secs(600);
+        PullTask::new(
+            PullOptions::new(temp.path().join("missing")).interval(Duration::from_secs(600)),
+        )
+        .unwrap()
+        .run_scheduled(
+            stop.clone(),
+            Some(resume_at),
+            |result| {
+                assert!(result.is_err());
+                reports.set(reports.get() + 1);
+                if reports.get() == 1 {
+                    stop.request_once();
+                    stop.request_once();
+                }
+            },
+            |next| {
+                if let Some(next) = next {
+                    if reports.get() == 0 {
+                        assert_eq!(next, resume_at);
+                        stop.request_once();
+                        stop.request_once();
+                    } else {
+                        assert!(next > resume_at);
+                        if reports.get() == 2 {
+                            stop.stop();
+                        }
+                    }
+                }
+                Ok(())
+            },
+        )
+        .unwrap();
+        finished.send(()).unwrap();
+        watchdog.join().unwrap();
+        assert_eq!(reports.get(), 2);
+        assert!(!stop.take_once());
+    }
 
     #[test]
     fn schedule_reports_execution_then_the_real_retry_deadline() {
