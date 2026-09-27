@@ -1,6 +1,10 @@
-use std::{fs, path::Path, process::Command};
+#[path = "support/git.rs"]
+mod support;
+
+use std::{fs, path::Path};
 
 use gitwatch::workspace::{BackupStore, Change, UploadState, Workspace};
+use support::git;
 use tempfile::TempDir;
 
 #[cfg(unix)]
@@ -42,24 +46,6 @@ fn restore_checks_and_preserves_unix_permissions() {
             & 0o777,
         0o600
     );
-}
-
-fn git(directory: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(directory)
-        .args(args)
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
-        .output()
-        .expect("Git must be installed for integration tests");
-    assert!(
-        output.status.success(),
-        "Git {args:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 
 fn project(path: &Path, content: &str) {

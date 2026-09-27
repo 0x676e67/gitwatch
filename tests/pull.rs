@@ -1,22 +1,11 @@
-use std::{fs, path::Path, process::Command, time::Duration};
+#[path = "support/git.rs"]
+mod support;
+
+use std::{fs, path::Path, time::Duration};
 
 use gitwatch::pull::{PullOptions, PullStrategy, PullTask};
+use support::git;
 use tempfile::TempDir;
-
-fn git(root: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{args:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).unwrap().trim().to_owned()
-}
 
 fn commit(root: &Path, contents: &str) -> String {
     fs::write(root.join("notes.md"), contents).unwrap();

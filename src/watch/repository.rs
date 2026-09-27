@@ -438,26 +438,10 @@ impl Repository {
     }
 
     fn operation(&self) -> Result<Option<String>> {
-        for marker in [
-            "MERGE_HEAD",
-            "CHERRY_PICK_HEAD",
-            "REVERT_HEAD",
-            "rebase-merge",
-            "rebase-apply",
-            "BISECT_LOG",
-        ] {
-            let path = self.git.text(["rev-parse", "--git-path", marker])?;
-            let path = Path::new(&path);
-            let path = if path.is_absolute() {
-                path.to_path_buf()
-            } else {
-                self.root.join(path)
-            };
-            if path.try_exists()? {
-                return Ok(Some(format!("Repository operation in progress: {marker}")));
-            }
-        }
-        Ok(None)
+        Ok(self
+            .git
+            .operation()?
+            .map(|marker| format!("Repository operation in progress: {marker}")))
     }
 
     fn message(&self) -> Result<String> {
