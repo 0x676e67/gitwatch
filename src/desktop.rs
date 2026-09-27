@@ -50,6 +50,9 @@ struct Desktop {
     desktop_settings: bool,
     selected: Option<Uuid>,
     draft: Option<Draft>,
+    saving: bool,
+    activity_open: bool,
+    follow_logs: bool,
     history: usize,
     restore_files: String,
     confirm: bool,
@@ -112,6 +115,9 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
                 desktop_settings: false,
                 selected: None,
                 draft: None,
+                saving: false,
+                activity_open: true,
+                follow_logs: true,
                 history: 0,
                 restore_files: String::new(),
                 confirm: false,
@@ -174,29 +180,23 @@ impl Desktop {
                     self.space_name.clear();
                     self.space_remote.clear();
                 }
-                if ui
-                    .add_enabled(
-                        !before.is_nil(),
-                        egui::Button::new(language.text("Rename workspace")),
-                    )
-                    .clicked()
-                {
-                    self.space_form = Some(false);
-                    self.space_name = self.spaces.label(language).into();
-                }
-                if ui
-                    .add_enabled(
-                        !before.is_nil() && !self.model.busy && self.model.rows.is_empty(),
-                        egui::Button::new(language.text("Remove workspace")),
-                    )
-                    .on_hover_text(
-                        language.text(
+                if !before.is_nil() {
+                    if ui.button(language.text("Rename workspace")).clicked() {
+                        self.space_form = Some(false);
+                        self.space_name = self.spaces.label(language).into();
+                    }
+                    if ui
+                        .add_enabled(
+                            !self.model.busy && self.model.rows.is_empty(),
+                            egui::Button::new(language.text("Remove workspace")),
+                        )
+                        .on_hover_text(language.text(
                             "Only empty workspaces can be removed. Backup data stays on disk.",
-                        ),
-                    )
-                    .clicked()
-                {
-                    self.spaces.remove(&mut self.model);
+                        ))
+                        .clicked()
+                    {
+                        self.spaces.remove(&mut self.model);
+                    }
                 }
             });
         });
@@ -209,12 +209,6 @@ impl Desktop {
         }
         if self.spaces.busy() {
             ui.label(language.text("Working in background…"));
-        }
-        if let Some(error) = &self.spaces.error {
-            ui.colored_label(Color32::LIGHT_RED, language.error(error));
-        }
-        if let Some(error) = self.spaces.background_error(language) {
-            ui.colored_label(Color32::LIGHT_RED, error);
         }
         if let Some(create) = self.space_form {
             let mut open = true;
@@ -246,90 +240,11 @@ impl Desktop {
         }
     }
 
-    fn clear_workspace(&mut self) {
-        self.selected = None;
-        self.draft = None;
-        self.settings = false;
-        self.space_form = None;
-        self.history = 0;
-        self.confirm = false;
-        self.remove = false;
-        self.restore_files.clear();
-        self.import_path.clear();
-        self.import_branch = 0;
-        self.remote.clear();
-        self.model.plan = None;
-        self.model.history.clear();
-        self.model.text.clear();
-        self.repository = repository::Panel::default();
-    }
-
-    fn paint(&mut self, ui: &mut egui::Ui) {
+    fn task_list(&mut self, ui: &mut egui::Ui) {
         let language = self.model.language;
-        if self.spaces.poll(&mut self.model) {
-            self.clear_workspace();
-            egui::DragAndDrop::clear_payload(ui.ctx());
-        }
-        if !self
-            .model
-            .rows
-            .iter()
-            .any(|row| row.draft.id == self.selected)
-        {
-            self.selected = self.model.rows.first().and_then(|r| r.draft.id);
-            self.model.history.clear();
-            self.model.plan = None;
-            self.model.text.clear();
-            self.history = 0;
-            self.confirm = false;
-            self.remove = false;
-        }
-        ui.ctx().request_repaint_after(Duration::from_millis(100));
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(24)).show(ui, |ui| {
-            let mut selected_language = language;
-            ui.horizontal(|ui| {
-                ui.heading(RichText::new("gitwatch").size(28.0));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_enabled_ui(!self.model.busy, |ui| {
-                        egui::ComboBox::from_id_salt("language")
-                            .selected_text(language.name())
-                            .show_ui(ui, |ui| {
-                                for choice in [Language::English, Language::Chinese] {
-                                    ui.selectable_value(&mut selected_language, choice, choice.name());
-                                }
-                            });
-                    });
-                    if ui.add(Icon::Settings.button(language.text("Settings"))).clicked() { self.desktop_settings = !self.desktop_settings; }
-                });
-            });
-            ui.weak(language.text("Keep a history of your work."));
-            if selected_language != language { self.spaces.global(&mut self.model, Command::Language(selected_language)); }
-            self.workspace_controls(ui);
-            ui.add_space(10.0);
-            ui.horizontal_wrapped(|ui| {
-                    if ui.add(Icon::Backup.button(language.text("Backup settings"))).clicked() { self.settings = !self.settings; self.draft = None; self.remote = self.model.remote.clone().unwrap_or_default(); self.auto_push = self.model.auto_push; }
-                    if ui.add(Icon::Add.button(language.text("Add task"))).clicked() { self.draft = Some(Draft::default()); self.settings = false; }
-                    if ui.add_enabled(!self.model.busy, Icon::Refresh.button(language.text("Refresh"))).clicked() { self.model.send(Command::Refresh); self.repository.refresh(); }
-                    if self.tray.is_some() && ui.add(Icon::Tray.button(language.text("Minimize to tray"))).clicked() { tray::hide(ui.ctx()); }
-            });
-            ui.add_space(8.0);
-            ui.separator();
-            if let Some(release) = &self.model.update {
-                egui::Frame::new().fill(theme::SELECTED).corner_radius(8).inner_margin(12).show(ui, |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(language.format("gitwatch {0} is available.", &[release.version()]));
-                        ui.monospace("gitwatch self update").on_hover_text(language.text("Choose Quit in the tray menu, then update from a terminal:"));
-                        ui.hyperlink_to(language.text("Release notes"), release.url());
-                    });
-                });
-            }
-            if self.model.busy { ui.horizontal(|ui| { ui.spinner(); ui.label(language.text("Working in background…")); }); }
-            if let Some(error) = &self.model.error { ui.colored_label(Color32::LIGHT_RED, language.error(error)); }
-            if let Some(error) = &self.tray_error { ui.colored_label(Color32::YELLOW, language.text("System tray unavailable; closing this window will exit.")).on_hover_text(error); }
-                ui.columns(2, |columns| {
-                    columns[0].heading(language.text("Tasks"));
-                    columns[0].label(language.text("Started tasks resume when you reopen the app."));
-                    egui::ScrollArea::vertical().id_salt("tasks").max_height((columns[0].available_height() - 100.0).max(100.0)).show(&mut columns[0], |ui| {
+        ui.heading(language.text("Tasks"));
+        ui.label(language.text("Started tasks resume when you reopen the app."));
+        egui::ScrollArea::vertical().id_salt("tasks").auto_shrink([false, false]).show(ui, |ui| {
                         if self.model.rows.is_empty() { ui.add_space(24.0); ui.label(language.text("Add a workspace backup, watch a Git repository, or schedule repository updates.")); }
                         let mut reorder = None;
                         for (index, row) in self.model.rows.iter().enumerate() {
@@ -413,18 +328,305 @@ impl Desktop {
                             }
                         }
                     });
-                    if self.settings {
-                        egui::ScrollArea::vertical().id_salt("backup-settings").max_height((columns[1].available_height() - 100.0).max(100.0)).show(&mut columns[1], |ui| self.settings(ui));
-                    } else if self.draft.is_some() { self.form(&mut columns[1]); }
-                    else { self.details(&mut columns[1]); }
+    }
+
+    fn activity(&mut self, ui: &mut egui::Ui) {
+        let language = self.model.language;
+        let open = self.activity_open;
+        let panel = egui::Panel::bottom(if open {
+            "activity-panel"
+        } else {
+            "activity-collapsed"
+        });
+        let panel = if open {
+            panel
+                .default_size((ui.available_height() * 0.3).clamp(90.0, 150.0))
+                .size_range(
+                    85.0..=(ui.available_height() - 180.0)
+                        .min(ui.available_height() * 0.7)
+                        .max(85.0),
+                )
+                .resizable(true)
+        } else {
+            panel.exact_size(36.0)
+        };
+        panel.show(ui, |ui| {
+            let mut follow_latest = false;
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add(
+                        (if open { Icon::Collapse } else { Icon::Expand })
+                            .button(language.text("Activity")),
+                    )
+                    .clicked()
+                {
+                    self.activity_open = !open;
+                }
+                if open {
+                    follow_latest = ui
+                        .checkbox(&mut self.follow_logs, language.text("Follow latest"))
+                        .changed()
+                        && self.follow_logs;
+                    if ui
+                        .add_enabled(
+                            !self.model.logs.is_empty(),
+                            egui::Button::new(language.text("Copy logs")),
+                        )
+                        .clicked()
+                    {
+                        ui.ctx().copy_text(
+                            self.model
+                                .logs
+                                .iter()
+                                .map(|message| message.render(language))
+                                .collect::<Vec<_>>()
+                                .join("\n"),
+                        );
+                    }
+                    if ui
+                        .add_enabled(
+                            !self.model.logs.is_empty(),
+                            egui::Button::new(language.text("Clear logs")),
+                        )
+                        .clicked()
+                    {
+                        self.model.logs.clear();
+                    }
+                }
+            });
+            if open {
+                egui::ScrollArea::vertical()
+                    .id_salt("activity")
+                    .auto_shrink([false, false])
+                    .stick_to_bottom(self.follow_logs)
+                    .animated(false)
+                    .show(ui, |ui| {
+                        if self.model.logs.is_empty() {
+                            ui.weak(language.text("No activity yet."));
+                        }
+                        for message in &self.model.logs {
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(message.render(language)).monospace(),
+                                )
+                                .wrap()
+                                .selectable(true),
+                            );
+                        }
+                        if follow_latest {
+                            ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
+                        }
+                    });
+            }
+        });
+    }
+
+    fn clear_workspace(&mut self) {
+        self.selected = None;
+        self.draft = None;
+        self.saving = false;
+        self.settings = false;
+        self.space_form = None;
+        self.history = 0;
+        self.confirm = false;
+        self.remove = false;
+        self.restore_files.clear();
+        self.import_path.clear();
+        self.import_branch = 0;
+        self.remote.clear();
+        self.model.plan = None;
+        self.model.history.clear();
+        self.model.text.clear();
+        self.repository = repository::Panel::default();
+    }
+
+    fn paint(&mut self, ui: &mut egui::Ui) {
+        let language = self.model.language;
+        if self.spaces.poll(&mut self.model) {
+            self.clear_workspace();
+            egui::DragAndDrop::clear_payload(ui.ctx());
+        }
+        if self.saving && !self.model.busy {
+            self.saving = false;
+            if self.model.error.is_none() {
+                self.draft = None;
+            }
+        }
+        if !self
+            .model
+            .rows
+            .iter()
+            .any(|row| row.draft.id == self.selected)
+        {
+            self.selected = self.model.rows.first().and_then(|r| r.draft.id);
+            self.model.history.clear();
+            self.model.plan = None;
+            self.model.text.clear();
+            self.history = 0;
+            self.confirm = false;
+            self.remove = false;
+        }
+        ui.ctx().request_repaint_after(Duration::from_millis(100));
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(ui.visuals().panel_fill)
+                    .inner_margin(24),
+            )
+            .show(ui, |ui| {
+                let mut selected_language = language;
+                ui.horizontal(|ui| {
+                    ui.heading(RichText::new("gitwatch").size(28.0));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.add_enabled_ui(!self.model.busy, |ui| {
+                            egui::ComboBox::from_id_salt("language")
+                                .selected_text(language.name())
+                                .show_ui(ui, |ui| {
+                                    for choice in [Language::English, Language::Chinese] {
+                                        ui.selectable_value(
+                                            &mut selected_language,
+                                            choice,
+                                            choice.name(),
+                                        );
+                                    }
+                                });
+                        });
+                        if ui
+                            .add(Icon::Settings.button(language.text("Settings")))
+                            .clicked()
+                        {
+                            self.desktop_settings = !self.desktop_settings;
+                        }
+                    });
                 });
-            ui.separator();
-            egui::CollapsingHeader::new(language.text("Activity")).default_open(true).show(ui, |ui| {
-                egui::ScrollArea::vertical().id_salt("activity").max_height(120.0).stick_to_bottom(true).show(ui, |ui| {
-                    for message in &self.model.logs { ui.label(message.render(language)); }
+
+                if selected_language != language {
+                    self.spaces
+                        .global(&mut self.model, Command::Language(selected_language));
+                }
+                self.workspace_controls(ui);
+                ui.add_space(10.0);
+                ui.horizontal_wrapped(|ui| {
+                    if !self.spaces.selected().is_nil()
+                        && ui
+                            .add_enabled(
+                                !self.model.busy,
+                                Icon::Backup.button(language.text("Backup settings")),
+                            )
+                            .clicked()
+                    {
+                        self.settings = !self.settings;
+                        self.draft = None;
+                        self.remote = self.model.remote.clone().unwrap_or_default();
+                        self.auto_push = self.model.auto_push;
+                    }
+                    if ui
+                        .add_enabled(
+                            !self.model.busy,
+                            Icon::Add.button(language.text("Add task")),
+                        )
+                        .clicked()
+                    {
+                        self.draft = Some(Draft::default());
+                        self.settings = false;
+                    }
+                    if ui
+                        .add_enabled(
+                            !self.model.busy,
+                            Icon::Refresh.button(language.text("Refresh")),
+                        )
+                        .clicked()
+                    {
+                        self.model.send(Command::Refresh);
+                        self.repository.refresh();
+                    }
+                    if self.tray.is_some()
+                        && ui
+                            .add(Icon::Tray.button(language.text("Minimize to tray")))
+                            .clicked()
+                    {
+                        tray::hide(ui.ctx());
+                    }
+                });
+                ui.add_space(8.0);
+                ui.separator();
+                if let Some(release) = &self.model.update {
+                    egui::Frame::new()
+                        .fill(theme::SELECTED)
+                        .corner_radius(8)
+                        .inner_margin(12)
+                        .show(ui, |ui| {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(
+                                    language
+                                        .format("gitwatch {0} is available.", &[release.version()]),
+                                );
+                                ui.monospace("gitwatch self update")
+                                    .on_hover_text(language.text(
+                                    "Choose Quit in the tray menu, then update from a terminal:",
+                                ));
+                                ui.hyperlink_to(language.text("Release notes"), release.url());
+                            });
+                        });
+                }
+                if self.model.busy {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(language.text("Working in background…"));
+                    });
+                }
+                let background_error = self.spaces.background_error(language);
+                if self.model.error.is_some()
+                    || self.spaces.error.is_some()
+                    || background_error.is_some()
+                {
+                    egui::ScrollArea::vertical()
+                        .id_salt("errors")
+                        .max_height(64.0)
+                        .show(ui, |ui| {
+                            for error in [&self.model.error, &self.spaces.error]
+                                .into_iter()
+                                .flatten()
+                                .map(|error| language.error(error))
+                                .chain(background_error)
+                            {
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(error).color(Color32::LIGHT_RED),
+                                    )
+                                    .wrap()
+                                    .selectable(true),
+                                );
+                            }
+                        });
+                }
+                if let Some(error) = &self.tray_error {
+                    ui.colored_label(
+                        Color32::YELLOW,
+                        language.text("System tray unavailable; closing this window will exit."),
+                    )
+                    .on_hover_text(error);
+                }
+                self.activity(ui);
+                let width = ui.available_width();
+                egui::Panel::left("task-list-panel")
+                    .default_size(300.0)
+                    .size_range(220.0..=(width - 340.0).clamp(220.0, 520.0))
+                    .resizable(true)
+                    .show(ui, |ui| self.task_list(ui));
+                egui::CentralPanel::default().show(ui, |ui| {
+                    if self.settings && !self.spaces.selected().is_nil() {
+                        egui::ScrollArea::vertical()
+                            .id_salt("backup-settings")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| self.settings(ui));
+                    } else if self.draft.is_some() {
+                        self.form(ui);
+                    } else {
+                        self.details(ui);
+                    }
                 });
             });
-        });
         egui::Window::new(language.text("Desktop settings"))
             .open(&mut self.desktop_settings)
             .collapsible(false)
@@ -508,18 +710,21 @@ impl Desktop {
                     {
                         self.model.send(Command::History(id));
                     }
-                    if ui
-                        .add(Icon::Upload.button(language.text("Upload")))
-                        .clicked()
+                    if self.model.remote.is_some()
+                        && ui
+                            .add(Icon::Upload.button(language.text("Upload")))
+                            .clicked()
                     {
                         self.model.send(Command::Push(id));
                     }
                 }
             });
             if self.remove {
-                ui.label(
-                    language.text("Remove this local binding? Backup history will be retained."),
-                );
+                ui.label(language.text(if kind == Kind::Workspace {
+                    "Remove this local binding? Backup history will be retained."
+                } else {
+                    "Remove this task? Local files will be kept."
+                }));
                 ui.horizontal(|ui| {
                     if ui
                         .add(Icon::Remove.button(language.text("Remove binding")))
@@ -539,7 +744,7 @@ impl Desktop {
         });
         if kind != Kind::Workspace {
             ui.add_space(16.0);
-            egui::ScrollArea::vertical().id_salt("repository-details").max_height((ui.available_height() - 100.0).max(100.0)).show(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt("repository-details").auto_shrink([false, false]).show(ui, |ui| {
                 self.repository.show(ui, &repository_path, &repository_remote, language);
                 ui.add_space(12.0);
                 if kind == Kind::Pull {
@@ -552,7 +757,7 @@ impl Desktop {
             });
             return;
         }
-        egui::ScrollArea::vertical().id_salt("details").max_height((ui.available_height() - 100.0).max(100.0)).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("details").auto_shrink([false, false]).show(ui, |ui| {
             egui::CollapsingHeader::new(language.text("Source repository")).show(ui, |ui| self.repository.show(ui, &repository_path, "origin", language));
             if let Some(plan) = &self.model.plan {
                 ui.separator(); ui.heading(language.text("Restore preview"));
@@ -570,6 +775,7 @@ impl Desktop {
                 if ui.add(Icon::Close.button(language.text("Close preview"))).clicked() { self.model.plan = None; self.confirm = false; }
             } else {
                 ui.separator(); ui.heading(language.text("History"));
+                if self.model.history.is_empty() { ui.weak(language.text("Choose History to load saved versions.")); }
                 for (index, entry) in self.model.history.iter().enumerate() {
                     if ui.selectable_label(self.history == index, format!("{}  {}", entry.commit().get(..12).unwrap_or(entry.commit()), entry.summary())).clicked() { self.history = index; }
                 }
@@ -602,7 +808,7 @@ impl Desktop {
         let mut save = false;
         let mut cancel = false;
         ui.add_space(12.0);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             save = ui
                 .add_enabled(
                     !self.model.busy,
@@ -610,38 +816,28 @@ impl Desktop {
                 )
                 .clicked();
             cancel = ui
-                .add(Icon::Close.button(language.text("Cancel")))
+                .add_enabled(!self.saving, Icon::Close.button(language.text("Cancel")))
                 .clicked();
             ui.label(language.text("Saving does not start a task."));
         });
         egui::ScrollArea::vertical()
             .id_salt(("form", draft.kind, draft.id))
-            .max_height((ui.available_height() - 70.0).max(100.0))
+            .auto_shrink([false, false])
             .show(ui, |ui| {
-                ui.add_enabled_ui(draft.id.is_none(), |ui| {
-                    ui.horizontal(|ui| {
-                        ui.selectable_value(
-                            &mut draft.kind,
-                            Kind::Workspace,
-                            language.text("Workspace backup"),
-                        );
-                        if ui
-                            .selectable_value(
-                                &mut draft.kind,
-                                Kind::Watch,
-                                language.text("Git watch"),
-                            )
-                            .changed()
-                        {
-                            draft.remote.clear();
-                        }
-                        ui.selectable_value(
-                            &mut draft.kind,
-                            Kind::Pull,
-                            language.text("Scheduled pull"),
-                        );
+                if self.saving { ui.disable(); }
+                ui.label(language.text("Task type"));
+                if draft.id.is_none() {
+                    let previous = draft.kind;
+                    egui::ComboBox::from_id_salt("task-kind").selected_text(draft.kind.label(language)).show_ui(ui, |ui| {
+                        for kind in [Kind::Workspace, Kind::Watch, Kind::Pull] { ui.selectable_value(&mut draft.kind, kind, kind.label(language)); }
                     });
-                });
+                    if draft.kind != previous {
+                        let name = std::mem::take(&mut draft.name);
+                        let path = std::mem::take(&mut draft.path);
+                        *draft = Draft { kind: draft.kind, name, path, ..Draft::default() };
+                        if draft.kind == Kind::Watch { draft.remote.clear(); }
+                    }
+                } else { ui.label(draft.kind.label(language)); }
                 field(ui, language.text("Name"), &mut draft.name);
                 field(ui, language.text("Local path"), &mut draft.path);
                 ui.horizontal(|ui| {
@@ -665,7 +861,7 @@ impl Desktop {
                     ui.label(
                         language.text("Selected paths, relative to the workspace (one per line)"),
                     );
-                    ui.text_edit_multiline(&mut draft.includes);
+                    ui.add(egui::TextEdit::multiline(&mut draft.includes).desired_width(f32::INFINITY));
                     ui.horizontal(|ui| {
                         if ui
                             .add(Icon::File.button(language.text("Add files…")))
@@ -698,7 +894,7 @@ impl Desktop {
                         }
                     });
                     ui.label(language.text("Excluded globs (one per line)"));
-                    ui.text_edit_multiline(&mut draft.excludes);
+                    ui.add(egui::TextEdit::multiline(&mut draft.excludes).desired_width(f32::INFINITY));
                     ui.checkbox(&mut draft.follow_links, language.text("Follow symbolic links"));
                     ui.label(language.text("Back up target contents, including outside this project. Restore requires ordinary destination paths."));
                     ui.label(language.text(
@@ -709,7 +905,7 @@ impl Desktop {
                 if draft.kind != Kind::Workspace {
                     field(
                         ui,
-                        language.text("Remote (empty disables watch upload)"),
+                        language.text(if draft.kind == Kind::Pull { "Remote name" } else { "Remote (empty disables watch upload)" }),
                         &mut draft.remote,
                     );
                 }
@@ -753,7 +949,7 @@ impl Desktop {
             });
         if save {
             self.model.send(Command::Save(draft.clone()));
-            self.draft = None;
+            self.saving = true;
         }
         if cancel {
             self.draft = None;
@@ -762,41 +958,39 @@ impl Desktop {
 
     fn settings(&mut self, ui: &mut egui::Ui) {
         let language = self.model.language;
-        ui.heading(language.text("Workspace backup remote"));
-        let local = self.spaces.selected().is_nil();
-        if local {
-            ui.label(language.text("The default workspace is local. Create another workspace to configure a remote repository."));
-            if self.model.remote.is_some() {
-                ui.label(language.text("The remote from your previous version is preserved."));
-            }
+        if self.spaces.selected().is_nil() {
+            return;
         }
-        ui.add_enabled_ui(!local, |ui| {
-            ui.label(language.text(
-                "Enter a URL to replace the configured remote. Fetch only reads remote history.",
-            ));
-            ui.add(
-                egui::TextEdit::singleline(&mut self.remote).hint_text(language.text("Remote URL")),
-            );
-            ui.checkbox(
-                &mut self.auto_push,
-                language.text("Upload after each local backup"),
-            );
-        });
+        ui.heading(language.text("Workspace backup remote"));
+        ui.label(language.text(
+            "Enter a URL to replace the configured remote. Fetch only reads remote history.",
+        ));
+        ui.add(
+            egui::TextEdit::singleline(&mut self.remote)
+                .desired_width(f32::INFINITY)
+                .hint_text(language.text("Remote URL")),
+        );
+        ui.checkbox(
+            &mut self.auto_push,
+            language.text("Upload after each local backup"),
+        );
         ui.add_enabled_ui(!self.model.busy, |ui| {
             ui.horizontal(|ui| {
                 if ui
                     .add_enabled(
-                        !local && !self.remote.trim().is_empty(),
+                        !self.remote.trim().is_empty(),
                         Icon::Save.button(language.text("Save remote")),
                     )
                     .clicked()
                 {
                     self.model
                         .send(Command::Remote(self.remote.clone(), self.auto_push));
-                    self.remote.clear();
                 }
                 if ui
-                    .add(Icon::Download.button(language.text("Fetch workspaces")))
+                    .add_enabled(
+                        self.model.remote.is_some(),
+                        Icon::Download.button(language.text("Fetch workspaces")),
+                    )
                     .clicked()
                 {
                     self.model.send(Command::Fetch);
@@ -1012,9 +1206,9 @@ mod tests {
             destination = egui::pos2(
                 rect.center().x,
                 if after {
-                    rect.bottom() - 4.0
+                    rect.bottom() - 12.0
                 } else {
-                    rect.top() + 4.0
+                    rect.top() + 12.0
                 },
             );
             if clip.contains(destination) {
@@ -1044,7 +1238,7 @@ mod tests {
             (preview(&output).unwrap() - destination - offset).length() < 0.1,
             "Scrolling must not move the floating card away from the pointer"
         );
-        assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::LineSegment { stroke, .. } if stroke.color == theme::ACCENT && stroke.width == 2.0)), "Missing drop position indicator");
+        assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::LineSegment { stroke, .. } if stroke.color == theme::ACCENT && stroke.width == 2.0)), "Missing drop position indicator: source={source}, target={target}, destination={destination:?}, drop={:?}, clip={clip:?}, busy={}", context.read_response(egui::Id::new(("task-drop", target))), app.model.busy);
         if cancel {
             let output = render_sized(
                 app,
@@ -1088,11 +1282,13 @@ mod tests {
             let pointer = output
                 .shapes
                 .iter()
-                .find(|shape| {
-                    matches!(&shape.shape, egui::epaint::Shape::Text(text) if text.pos.x > 400.0)
-                        && shape.clip_rect.min.y > 200.0
-                        && shape.clip_rect.height() > 50.0
+                .filter(|shape| {
+                    matches!(&shape.shape, egui::epaint::Shape::Text(_))
+                        && shape.clip_rect.min.x > 300.0
+                        && shape.clip_rect.min.y > 300.0
+                        && shape.clip_rect.height() > 10.0
                 })
+                .max_by(|a, b| a.clip_rect.min.y.total_cmp(&b.clip_rect.min.y))
                 .map(|shape| egui::pos2(600.0, shape.clip_rect.center().y))
                 .unwrap_or(egui::pos2(600.0, 340.0));
             output = render(
@@ -1132,16 +1328,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn desktop_buttons_drive_backup_preview_and_explicit_restore() {
-        let temp = tempfile::TempDir::new().unwrap();
-        let source = temp.path().join("source");
-        fs::create_dir(&source).unwrap();
-        let file = source.join("notes.md");
-        fs::write(&file, "saved").unwrap();
+    fn fixture(directory: &std::path::Path) -> Desktop {
         let (spaces, model) =
-            Sessions::new(Some(temp.path().join("data")), Language::English).unwrap();
-        let mut app = Desktop {
+            Sessions::new(Some(directory.join("data")), Language::English).unwrap();
+        Desktop {
             model,
             spaces,
             space_form: None,
@@ -1154,6 +1344,9 @@ mod tests {
             desktop_settings: false,
             selected: None,
             draft: None,
+            saving: false,
+            activity_open: true,
+            follow_logs: true,
             history: 0,
             restore_files: String::new(),
             confirm: false,
@@ -1163,7 +1356,131 @@ mod tests {
             settings: false,
             import_branch: 0,
             import_path: String::new(),
+        }
+    }
+
+    #[test]
+    fn desktop_layout_and_form_errors() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut app = fixture(temp.path());
+        settle(&mut app);
+        let context = egui::Context::default();
+        theme::apply(&context);
+        context.all_styles_mut(|style| style.animation_time = 0.0);
+        configure_fonts(&context);
+        let has_text = |output: &egui::FullOutput, expected: &str| {
+            output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == expected))
         };
+        let output = render(&mut app, &context, vec![]);
+        for label in [
+            "Backup settings",
+            "Workspace backup remote",
+            "Rename workspace",
+            "Remove workspace",
+        ] {
+            assert!(
+                !has_text(&output, label),
+                "Irrelevant default workspace control: {label}"
+            );
+        }
+        click(&mut app, &context, "Add task");
+        app.draft.as_mut().unwrap().name = "Keep my input".into();
+        click(&mut app, &context, "Workspace backup");
+        click(&mut app, &context, "Git watch");
+        assert_eq!(app.draft.as_ref().unwrap().kind, Kind::Watch);
+        assert!(app.draft.as_ref().unwrap().remote.is_empty());
+        click(&mut app, &context, "Git watch");
+        click(&mut app, &context, "Scheduled pull");
+        assert_eq!(app.draft.as_ref().unwrap().remote, "origin");
+        assert_eq!(app.draft.as_ref().unwrap().name, "Keep my input");
+        app.draft.as_mut().unwrap().interval = "not a number".into();
+        click(&mut app, &context, "Save task");
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while app.model.busy && std::time::Instant::now() < deadline {
+            app.model.poll();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        render(&mut app, &context, vec![]);
+        assert!(app.model.error.is_some());
+        assert!(!app.saving);
+        assert_eq!(app.draft.as_ref().unwrap().name, "Keep my input");
+        assert_eq!(app.draft.as_ref().unwrap().interval, "not a number");
+        app.model.error = Some("Git reported a long diagnostic.\n".repeat(100));
+        let output = render(&mut app, &context, vec![]);
+        assert!(
+            output
+                .shapes
+                .iter()
+                .any(|shape| matches!(&shape.shape, egui::Shape::Text(text)
+            if text.galley.job.text == "Save task"
+                && shape.clip_rect.contains(text.pos + text.galley.size() / 2.0)
+                && text.pos.y < 560.0)),
+            "Long errors must not hide the task form"
+        );
+        app.model.error = None;
+        click(&mut app, &context, "Cancel");
+        click(&mut app, &context, "Follow latest");
+        assert!(!app.follow_logs);
+        app.model.logs = (0..100)
+            .map(|index| crate::i18n::Text::value(format!("Log entry {index}")))
+            .collect();
+        render(&mut app, &context, vec![]);
+        click(&mut app, &context, "Follow latest");
+        let output = render(&mut app, &context, vec![]);
+        assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text)
+            if text.galley.job.text == "Log entry 99" && shape.clip_rect.contains(text.pos + text.galley.size() / 2.0))), "Enabling follow must reveal the latest log entry");
+        click(&mut app, &context, "Clear logs");
+        assert!(app.model.logs.is_empty());
+        let output = render(&mut app, &context, vec![]);
+        assert!(has_text(&output, "No activity yet."));
+        let size = egui::vec2(1140.0, 780.0);
+        for (id, delta) in [
+            ("activity-panel", egui::vec2(0.0, -150.0)),
+            ("task-list-panel", egui::vec2(90.0, 0.0)),
+        ] {
+            render_sized(&mut app, &context, vec![], size);
+            let resize = egui::Id::new(id).with("__resize");
+            let start = context.read_response(resize).unwrap().rect.center();
+            let button = |pos, pressed| egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            render_sized(
+                &mut app,
+                &context,
+                vec![egui::Event::PointerMoved(start), button(start, true)],
+                size,
+            );
+            render_sized(
+                &mut app,
+                &context,
+                vec![egui::Event::PointerMoved(start + delta)],
+                size,
+            );
+            render_sized(&mut app, &context, vec![button(start + delta, false)], size);
+            render_sized(&mut app, &context, vec![], size);
+            let end = context.read_response(resize).unwrap().rect.center();
+            assert!(
+                (end - start).length() > 60.0,
+                "Panel did not resize: {id}, {start:?} -> {end:?}"
+            );
+        }
+        click(&mut app, &context, "Activity");
+        assert!(!app.activity_open);
+        click(&mut app, &context, "Activity");
+        assert!(app.activity_open);
+    }
+
+    #[test]
+    fn desktop_buttons_drive_backup_preview_and_explicit_restore() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let source = temp.path().join("source");
+        fs::create_dir(&source).unwrap();
+        let file = source.join("notes.md");
+        fs::write(&file, "saved").unwrap();
+        let mut app = fixture(temp.path());
         settle(&mut app);
         app.model.update =
             Some(serde_json::from_value(serde_json::json!({"version":"99.0.0"})).unwrap());
@@ -1195,7 +1512,7 @@ mod tests {
         assert!(app.model.rows[0].draft.follow_links);
         let selected = app.model.rows[0].draft.id;
         for _ in 0..2 {
-            for action in ["Backup settings", "Add task", "Refresh"] {
+            for action in ["Add task", "Refresh"] {
                 click(&mut app, &context, language.text(action));
                 settle(&mut app);
                 let output = render(&mut app, &context, vec![]);

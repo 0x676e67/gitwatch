@@ -234,12 +234,7 @@ impl Output {
 
 impl Lock {
     pub(crate) fn acquire(path: &Path) -> Result<Self> {
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(path)?;
+        let file = Self::open_file(path)?;
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             match fs2::FileExt::try_lock_exclusive(&file) {
@@ -256,6 +251,24 @@ impl Lock {
             }
         }
         Ok(Self { _file: file })
+    }
+
+    /// Waits for a data operation; instance ownership still uses bounded acquisition.
+    pub(crate) fn wait(path: &Path) -> Result<Self> {
+        let file = Self::open_file(path)?;
+        // The OS queues contenders and releases the lock when the handle closes.
+        // https://docs.rs/fs2/latest/fs2/trait.FileExt.html#tymethod.lock_exclusive
+        fs2::FileExt::lock_exclusive(&file).context("Cannot lock the gitwatch data store")?;
+        Ok(Self { _file: file })
+    }
+
+    fn open_file(path: &Path) -> Result<File> {
+        Ok(OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(path)?)
     }
 }
 

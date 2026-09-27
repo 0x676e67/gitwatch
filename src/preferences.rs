@@ -32,7 +32,7 @@ impl Preferences {
 
     pub fn update(directory: &Path, change: impl FnOnce(&mut Self)) -> Result<()> {
         fs::create_dir_all(directory)?;
-        let _lock = Lock::acquire(&directory.join("store.lock"))?;
+        let _lock = Lock::wait(&directory.join("store.lock"))?;
         let mut preferences = Self::load(directory)?;
         change(&mut preferences);
         paths::atomic_write(

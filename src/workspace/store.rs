@@ -18,6 +18,7 @@ use crate::{
 };
 
 /// Local bindings and a bare Git repository containing independent workspace branches.
+/// Data operations wait for concurrent store operations to finish.
 #[derive(Clone, Debug)]
 pub struct BackupStore {
     pub(crate) data: PathBuf,
@@ -36,7 +37,7 @@ impl BackupStore {
     pub fn open(data: impl AsRef<Path>) -> Result<Self> {
         fs::create_dir_all(data.as_ref())?;
         let data = paths::root(data.as_ref())?;
-        let _lock = Lock::acquire(&data.join("store.lock"))?;
+        let _lock = Lock::wait(&data.join("store.lock"))?;
         let config_path = data.join("config.json");
         if !config_path.exists() {
             ensure!(
@@ -121,7 +122,7 @@ impl BackupStore {
 
     /// Registers a new workspace without copying or uploading project files.
     pub fn register(&self, workspace: Workspace) -> Result<()> {
-        let _tasks = Lock::acquire(&self.data.join("tasks.lock"))?;
+        let _tasks = Lock::wait(&self.data.join("tasks.lock"))?;
         let _lock = self.lock()?;
         self.validate(&workspace)?;
         let mut config = self.config()?;
@@ -145,7 +146,7 @@ impl BackupStore {
     /// Updates a binding, migrating local and remote history when its branch changes.
     /// A conflicting or unavailable remote leaves the binding unchanged.
     pub fn update(&self, workspace: Workspace) -> Result<()> {
-        let _tasks = Lock::acquire(&self.data.join("tasks.lock"))?;
+        let _tasks = Lock::wait(&self.data.join("tasks.lock"))?;
         let _lock = self.lock()?;
         self.validate(&workspace)?;
         let mut config = self.config()?;
@@ -436,7 +437,7 @@ impl BackupStore {
 
     /// Binds a fetched branch to a project on this machine, without restoring files.
     pub fn import(&self, branch: &str, root: impl AsRef<Path>) -> Result<Workspace> {
-        let _tasks = Lock::acquire(&self.data.join("tasks.lock"))?;
+        let _tasks = Lock::wait(&self.data.join("tasks.lock"))?;
         let _lock = self.lock()?;
         self.git.run(["check-ref-format", "--branch", branch])?;
         let commit = self.git.resolve(&format!("refs/remotes/origin/{branch}"))?;
@@ -532,7 +533,7 @@ impl BackupStore {
     }
 
     pub(crate) fn lock(&self) -> Result<Lock> {
-        Lock::acquire(&self.data.join("store.lock"))
+        Lock::wait(&self.data.join("store.lock"))
     }
 
     pub(crate) fn config(&self) -> Result<Config> {

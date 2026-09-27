@@ -635,7 +635,7 @@ impl Worker {
                         }
                         Kind::Workspace => {}
                     }
-                    let _lock = Lock::acquire(&self.store.directory().join("tasks.lock"))?;
+                    let _lock = Lock::wait(&self.store.directory().join("tasks.lock"))?;
                     let mut tasks = self.tasks()?;
                     let id = *draft.id.get_or_insert_with(Uuid::new_v4);
                     self.store.check_task_name(id, &draft.name)?;
@@ -667,7 +667,7 @@ impl Worker {
                 if self.find(id)?.kind == Kind::Workspace {
                     self.store.remove(id)?;
                 } else {
-                    let _lock = Lock::acquire(&self.store.directory().join("tasks.lock"))?;
+                    let _lock = Lock::wait(&self.store.directory().join("tasks.lock"))?;
                     let mut tasks = self.tasks()?;
                     tasks.retain(|t| t.id != Some(id));
                     paths::atomic_write(
@@ -1469,13 +1469,34 @@ mod tests {
         let data = temp.path().join("data");
         let mut model = Model::new(Some(data.clone()));
         wait(&mut model);
-        let lock = Lock::acquire(&data.join("store.lock")).unwrap();
+        let lock = Lock::wait(&data.join("store.lock")).unwrap();
         model.set_language(Language::Chinese);
         assert!(model.busy);
         assert!(model.error.is_none());
         assert_eq!(model.language, Language::English);
+        let other_data = data.clone();
+        let (sender, receiver) = mpsc::channel();
+        let reader = thread::spawn(move || {
+            let result = BackupStore::open(other_data).and_then(|store| store.workspaces());
+            let _ = sender.send(result);
+        });
+        // A normal backup or upload can hold the store beyond the old five-second limit.
+        thread::sleep(Duration::from_secs(6));
+        model.poll();
+        let pending = model.busy && model.error.is_none();
+        let reader_pending = matches!(receiver.try_recv(), Err(mpsc::TryRecvError::Empty));
         drop(lock);
         wait(&mut model);
+        reader.join().unwrap();
+        assert!(
+            pending,
+            "Storage contention must not fail a settings operation"
+        );
+        assert!(
+            reader_pending,
+            "Opening a busy store must wait for its current operation"
+        );
+        receiver.recv().unwrap().unwrap();
         assert!(model.error.is_none(), "{:?}", model.error);
         assert_eq!(model.language, Language::Chinese);
         assert!(
@@ -1483,6 +1504,43 @@ mod tests {
                 .unwrap()
                 .contains("zh-CN")
         );
+        let source = temp.path().join("source");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("notes.md"), "saved").unwrap();
+        command(
+            &mut model,
+            Command::Save(Draft {
+                name: "Startup backup".into(),
+                path: source.to_string_lossy().into_owned(),
+                includes: "notes.md".into(),
+                ..Draft::default()
+            }),
+        );
+        let id = model.rows[0].draft.id.unwrap();
+        Preferences::update(&data, |preferences| {
+            preferences.started_tasks.insert(id);
+        })
+        .unwrap();
+        drop(model);
+        let lock = Lock::wait(&data.join("store.lock")).unwrap();
+        let mut model = Model::new(Some(data.clone()));
+        thread::sleep(Duration::from_secs(6));
+        model.poll();
+        let pending = model.busy && model.error.is_none();
+        drop(lock);
+        wait(&mut model);
+        assert!(
+            pending,
+            "Startup must wait for a busy store instead of losing its controller"
+        );
+        assert!(model.rows[0].running);
+        assert!(
+            Preferences::load(&data)
+                .unwrap()
+                .started_tasks
+                .contains(&id)
+        );
+        command(&mut model, Command::Stop(id));
     }
 
     #[test]
