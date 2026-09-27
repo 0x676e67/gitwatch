@@ -59,6 +59,8 @@ The task list stays visible while you add tasks or change backup settings. Selec
 
 Drag the six-dot handle on a task card to change its position. The order stays the same after editing tasks or restarting the app, and new tasks appear at the end. Drag near the top or bottom of the list to scroll, or press Escape to cancel.
 
+**Run once** works whether a task is started or stopped. For a started task, it requests an immediate run on the same worker; if an operation is already in progress, the request waits until it finishes. Repeated pending requests are combined into one run. A manual pull starts a new countdown when it finishes. Running once does not change whether the task starts automatically.
+
 Task details include a repository link, local branches and tags, commit and contributor counts, and the latest commit. History counts cover the local HEAD, including merges; shallow clones show a warning. Git counts text lines in committed files at the same local HEAD, including comments and blank lines. The breakdown groups files by extension; it does not parse programming languages. Binary files are counted separately. Information refreshes in the background while the details are open, or when you click **Refresh information**. Repository information comes from local Git commands and does not make network requests. These desktop additions are available in the source build and the next release.
 
 ## Watch an existing repository

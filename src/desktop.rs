@@ -359,7 +359,7 @@ impl Desktop {
                     });
                 }
                 if ui
-                    .add_enabled(!running, Icon::Once.button(language.text("Run once")))
+                    .add(Icon::Once.button(language.text("Run once")))
                     .clicked()
                 {
                     self.model.send(Command::Once(id));
@@ -1090,6 +1090,20 @@ mod tests {
         click(&mut app, &context, language.text("Confirm restore"));
         settle(&mut app);
         assert_eq!(fs::read_to_string(&file).unwrap(), "saved");
+        click(&mut app, &context, language.text("Start"));
+        settle(&mut app);
+        assert!(app.model.rows[0].running);
+        click(&mut app, &context, language.text("Run once"));
+        settle(&mut app);
+        assert!(app.model.rows[0].running);
+        assert!(
+            app.model
+                .logs
+                .iter()
+                .any(|text| text.render(language) == language.text("Run once requested"))
+        );
+        click(&mut app, &context, language.text("Stop"));
+        settle(&mut app);
         click(&mut app, &context, "简体中文");
         click(&mut app, &context, "English");
         settle(&mut app);

@@ -22,7 +22,13 @@ use crate::{
 
 /// A cooperative stop signal shared by an interface and a running watch task.
 #[derive(Clone, Default)]
-pub struct StopToken(Arc<AtomicBool>);
+pub struct StopToken(Arc<Signals>);
+
+#[derive(Default)]
+struct Signals {
+    stopped: AtomicBool,
+    run_once: AtomicBool,
+}
 
 /// Timing and event-source settings, independent from either storage mode.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -65,11 +71,21 @@ enum Job {
 impl StopToken {
     /// Requests shutdown at the next safe operation boundary.
     pub fn stop(&self) {
-        self.0.store(true, Ordering::Relaxed);
+        self.0.stopped.store(true, Ordering::Relaxed);
     }
     /// Returns whether shutdown was requested.
     pub fn is_stopped(&self) -> bool {
-        self.0.load(Ordering::Relaxed)
+        self.0.stopped.load(Ordering::Relaxed)
+    }
+
+    /// Coalesces pending requests for the task's next safe operation boundary.
+    #[cfg(any(feature = "desktop", feature = "tui", test))]
+    pub(crate) fn request_once(&self) {
+        self.0.run_once.store(true, Ordering::Relaxed);
+    }
+
+    pub(crate) fn take_once(&self) -> bool {
+        self.0.run_once.swap(false, Ordering::Relaxed)
     }
 }
 
@@ -371,6 +387,9 @@ fn run(
                 Ok(_) => {}
                 Err(error) => emit_error(&mut report, &mut last_error, error.to_string()),
             }
+        }
+        if stop.take_once() {
+            dirty = Some((now, now));
         }
         if dirty.is_some_and(|(first, deadline)| {
             now >= deadline || now.duration_since(first) >= options.max_wait

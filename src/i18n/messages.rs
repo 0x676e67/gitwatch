@@ -31,6 +31,10 @@ pub(super) const TEXT: &[(&str, &str)] = &[
         "提交与贡献者统计基于本地 HEAD，包含合并提交。",
     ),
     ("Latest commit", "最近提交"),
+    (
+        "Shown in local time. Original: {0}",
+        "已转换为本地时间。原始时间：{0}",
+    ),
     ("Language", "语言"),
     ("Files", "文件"),
     ("Top contributors", "主要贡献者"),
@@ -284,6 +288,7 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     ("Start", "启动"),
     ("Stop", "停止"),
     ("Run once", "执行一次"),
+    ("Run once requested", "已请求执行一次"),
     ("Edit", "编辑"),
     ("Remove", "移除"),
     ("Cancel", "取消"),
@@ -683,10 +688,6 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     (
         "Stop the task before removing it",
         "请先停止任务，再移除绑定",
-    ),
-    (
-        "Stop the task before running it once",
-        "请先停止任务，再执行单次操作",
     ),
     (
         "Stop the task before preparing a restore",
