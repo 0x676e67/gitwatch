@@ -144,8 +144,11 @@ impl Scan<'_> {
             if metadata.file_type().is_symlink() && self.workspace.follow_links {
                 // canonicalize resolves link chains, including directory links:
                 // https://doc.rust-lang.org/std/fs/fn.canonicalize.html
-                path = dunce::canonicalize(&path)
-                    .with_context(|| format!("Cannot resolve symbolic link: {relative}"))?;
+                path = match dunce::canonicalize(&path) {
+                    Ok(target) => target,
+                    Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+                    Err(error) => bail!("Cannot resolve symbolic link: {relative}: {error}"),
+                };
                 paths::disjoint(&path, self.data)?;
                 ensure!(
                     !path

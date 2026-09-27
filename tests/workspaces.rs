@@ -533,13 +533,22 @@ fn following_links_backs_up_contents_without_changing_restore_boundaries() {
     );
     fs::remove_file(outside.join("secret.txt")).unwrap();
     link(&outside.join("missing"), &outside.join("broken"), false);
-    assert!(store.backup(workspace.id()).is_err());
+    assert_eq!(store.backup(workspace.id()).unwrap().files(), 3);
     // Exclusions refer to the visible source path, including linked children.
+    fs::write(outside.join("extra.md"), "excluded").unwrap();
     store
-        .update(workspace.edit().exclude("skills/broken").build().unwrap())
+        .update(workspace.edit().exclude("skills/extra.md").build().unwrap())
         .unwrap();
-    assert!(store.backup(workspace.id()).unwrap().changed());
+    assert_eq!(store.backup(workspace.id()).unwrap().files(), 3);
     fs::remove_file(outside.join("broken")).unwrap();
+    let absent = temp.path().join("absent");
+    fs::rename(&outside, &absent).unwrap();
+    fs::write(source.join("notes.md"), "local v2").unwrap();
+    let retained = store.backup(workspace.id()).unwrap();
+    assert!(retained.changed());
+    assert_eq!(retained.files(), 3);
+    assert_eq!(retained.retained(), &["prompt.md", "skills/SKILL.md"]);
+    fs::rename(&absent, &outside).unwrap();
     assert_eq!(fs::read(outside.join("SKILL.md")).unwrap(), b"skill v2");
     unlink_dir(&source.join("skills"));
     fs::remove_file(source.join("prompt.md")).unwrap();
