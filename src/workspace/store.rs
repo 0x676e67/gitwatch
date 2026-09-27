@@ -100,7 +100,11 @@ impl BackupStore {
         self.validate(workspace)?;
         let mut hash = Sha256::new();
         hash.update(serde_json::to_vec(workspace)?);
-        for (path, file) in scan::collect(workspace, &self.data)? {
+        for (path, file) in scan::collect(
+            workspace,
+            &self.data,
+            &scan::exclusions(&workspace.exclude)?,
+        )? {
             hash.update((path.len() as u64).to_le_bytes());
             hash.update(path.as_bytes());
             hash.update([0, u8::from(file.executable)]);
@@ -267,7 +271,7 @@ impl BackupStore {
         Ok((config.remote, config.auto_push))
     }
 
-    /// Saves selected files on this workspace's branch, retaining missing older files.
+    /// Saves selected files, retaining missing files only within the current selection.
     /// A failed upload is returned in the report after the local commit is saved.
     pub fn backup(&self, id: Uuid) -> Result<BackupReport> {
         let _lock = self.lock()?;
@@ -293,7 +297,8 @@ impl BackupStore {
     fn snapshot(&self, workspace: &Workspace) -> Result<BackupReport> {
         let id = workspace.id;
         self.validate(workspace)?;
-        let collected = scan::collect(workspace, &self.data)?;
+        let excludes = scan::exclusions(&workspace.exclude)?;
+        let collected = scan::collect(workspace, &self.data, &excludes)?;
         let reference = workspace.reference();
         let parent = self.git.reference(&reference)?;
         let mut blobs = if let Some(parent) = &parent {
@@ -302,6 +307,7 @@ impl BackupStore {
         } else {
             BTreeMap::new()
         };
+        blobs.retain(|path, _| scan::selected(workspace, &excludes, path));
         let retained = blobs
             .keys()
             .filter(|p| !collected.contains_key(*p))
@@ -385,26 +391,29 @@ impl BackupStore {
         }
     }
 
-    /// Pushes one branch without force, creating its first snapshot if necessary.
-    /// Existing snapshots can be uploaded without accessing the source directory.
+    /// Pushes one branch without force, snapshotting new or changed selections first.
+    /// Unchanged selections can be uploaded without accessing the source directory.
     pub fn push(&self, id: Uuid) -> Result<()> {
         let _lock = self.lock()?;
         let config = self.config()?;
         ensure!(config.remote.is_some(), "Configure a backup remote first");
         let workspace = self.workspace(&config, id)?;
-        let mut report = if self.git.reference(&workspace.reference())?.is_none() {
-            self.snapshot(workspace)?
-        } else {
-            let commit = self.git.resolve(&workspace.reference())?;
+        let mut report = if let Some(commit) = self.git.reference(&workspace.reference())? {
             let manifest = self.manifest(&commit, Some(id))?;
-            BackupReport {
-                workspace: id,
-                files: self.blobs(&commit)?.len(),
-                commit,
-                changed: false,
-                retained: manifest.retained,
-                upload: UploadState::Pending,
+            if manifest.include != workspace.include || manifest.exclude != workspace.exclude {
+                self.snapshot(workspace)?
+            } else {
+                BackupReport {
+                    workspace: id,
+                    files: self.blobs(&commit)?.len(),
+                    commit,
+                    changed: false,
+                    retained: manifest.retained,
+                    upload: UploadState::Pending,
+                }
             }
+        } else {
+            self.snapshot(workspace)?
         };
         self.save_report(&report)?;
         let result = self.push_locked(workspace);
