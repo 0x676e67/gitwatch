@@ -19,6 +19,7 @@ gitwatch workspace edit agents --follow-links false</code></pre>
 <p>The option is off by default and stays local to this task; importing a backup does not enable it. Exclusion patterns use the paths visible in your project. Periodic content checks detect changes in external targets. Missing link targets are skipped, and their previously saved files stay in the backup. Cycles, unreadable targets and links into backup storage produce an error without replacing the last backup; credential and cache exclusions still apply.</p>
 <p>Restore previews continue to reject linked destinations. To recover these files without writing through a link, bind the backup to another ordinary directory and preview the restore there. The restored files and directories are ordinary copies.</p>
 <h2 id="remote">Use a remote backup repository</h2>
+<p>Create the first snapshot with <code>workspace backup</code> or <strong>Run once</strong> before using Upload. Upload sends an existing backup branch; it does not scan the source. With automatic uploads enabled, a successful backup also pushes the branch.</p>
 <pre><code>gitwatch workspace remote https://github.com/you/private-backup.git --auto-push
 gitwatch workspace fetch</code></pre>
 <p>Use a repository appropriate for the contents you are backing up. Leave out the remote configuration for local-only backups. Fetch retrieves history without restoring files. Push never uses force; if histories diverge, your local backup remains intact and you must reconcile the histories yourself.</p>

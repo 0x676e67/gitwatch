@@ -19,6 +19,7 @@ gitwatch workspace edit agents --follow-links false</code></pre>
 <p>此选项默认关闭，只保存在当前任务的本地配置中，导入备份不会自动启用。排除规则使用项目中可见的路径；定期内容检查会发现外部目标的变化。链接目标不存在时会跳过，该路径以前保存的文件仍保留在备份中。循环链接、无法读取的目标和指向备份数据的链接会报错，已有备份保持不变；凭据与缓存排除规则仍然生效。</p>
 <p>恢复预览仍会拒绝经过符号链接的目标路径。需要恢复这些内容时，可以先把备份绑定到另一个普通目录，再预览并确认恢复；恢复后得到普通文件和目录，不会通过链接改写原目标。</p>
 <h2 id="remote">配置远程备份仓库</h2>
+<p>首次上传前，先通过 <code>workspace backup</code> 或<strong>执行一次</strong>生成快照。上传只推送已有的备份分支，不会扫描源目录。启用自动上传后，备份成功会同时推送该分支。</p>
 <pre><code>gitwatch workspace remote https://github.com/you/private-backup.git --auto-push
 gitwatch workspace fetch</code></pre>
 <p>根据备份内容选择适当的远程仓库。只需要本地备份时，可以不配置远程。获取历史不会恢复文件，推送也不会强制覆盖远程。如果历史发生分叉，本地备份仍会保留，需要你手动处理。</p>
