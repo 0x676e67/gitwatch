@@ -1,6 +1,6 @@
 <h2 id="add">Add your first task</h2>
 <pre><code>gitwatch desktop</code></pre>
-<ol><li>Click <strong>Add task</strong> and choose <strong>Workspace backup</strong>, <strong>Git watch</strong> or <strong>Scheduled pull</strong>.</li><li>Give it a name and select the source directory. Set the options for that mode.</li><li>Save the task. It appears in the list, stopped.</li><li>Select it and click <strong>Run once</strong> to try it, or <strong>Start</strong> to keep it running.</li></ol>
+<ol><li>Click <strong>Add task</strong> and use the <strong>Task type</strong> dropdown to choose <strong>Workspace backup</strong>, <strong>Git watch</strong> or <strong>Scheduled pull</strong>.</li><li>Give it a name and select the source directory. Set the options for that mode.</li><li>Save the task. It appears in the list, stopped.</li><li>Select it and click <strong>Run once</strong> to try it, or <strong>Start</strong> to keep it running.</li></ol>
 <figure><a href="../assets/screenshots/pull-en.jpg"><img src="../assets/screenshots/pull-en.jpg" alt="Scheduled pull task form with the pull strategy selector open" width="2560" height="1392" loading="lazy"></a><figcaption>Choose a strategy when adding or editing a scheduled pull.</figcaption></figure>
 <h2 id="controls">Manage running tasks</h2>
 <p>Stop a running task before editing or removing it.</p>
@@ -15,6 +15,10 @@
 <p>Switching only changes the list you see. Started tasks in other workspaces continue running, and they all resume when you reopen the app. The selected workspace and saved pull deadlines are remembered too.</p>
 <p>The default workspace is local: its backup remote cannot be changed in the interface. An existing remote from an older version is preserved. For a custom workspace, use <strong>Backup settings</strong> to change its remote, choose automatic upload, or fetch and import backup branches.</p>
 <p><strong>Rename workspace</strong> changes the name without moving data. <strong>Remove workspace</strong> is available only when the current workspace has no tasks; its backup data stays on disk. The default workspace cannot be renamed or removed.</p>
+<h2 id="layout">Adjust the layout</h2>
+<p>Drag the divider beside the task list to change its width. Drag the top edge of <strong>Activity</strong> upward to make more room for logs, or click its heading to collapse it.</p>
+<p>Logs wrap to fit the panel and can be selected and copied. <strong>Copy logs</strong> copies the current workspace's displayed log; <strong>Clear logs</strong> clears this view without removing tasks or backup history. Turn off <strong>Follow latest</strong> while reading earlier entries. The view keeps up to 200 entries.</p>
+<p>The default workspace is local, so it does not show backup remote settings. Select a custom workspace to configure its remote. When adding a task, choose its mode from the <strong>Task type</strong> dropdown. If saving fails, your input stays in the form so you can correct it and try again.</p>
 <h2 id="history">Browse and restore backups</h2>
 <p>Select a workspace backup to open its history. Select a revision, preview the files, then review their contents before confirming a restore. Previewing alone does not write to the source directory. See <a href="backup.html#restore">the restore workflow</a> for recovery files and preview expiry.</p>
 <h2 id="repository">Read repository information</h2>

@@ -1,6 +1,6 @@
 <h2 id="add">添加第一个任务</h2>
 <pre><code>gitwatch desktop</code></pre>
-<ol><li>点击<strong>添加任务</strong>，选择<strong>工作空间备份</strong>、<strong>Git 监听</strong>或<strong>定时拉取</strong>。</li><li>填写任务名称，选择源目录，再设置该模式的选项。</li><li>保存任务。新任务会出现在列表中，保持停止状态。</li><li>选中任务，点击<strong>执行一次</strong>试运行，或点击<strong>启动</strong>让它持续运行。</li></ol>
+<ol><li>点击<strong>添加任务</strong>，从<strong>任务类型</strong>下拉框中选择<strong>工作空间备份</strong>、<strong>Git 监听</strong>或<strong>定时拉取</strong>。</li><li>填写任务名称，选择源目录，再设置该模式的选项。</li><li>保存任务。新任务会出现在列表中，保持停止状态。</li><li>选中任务，点击<strong>执行一次</strong>试运行，或点击<strong>启动</strong>让它持续运行。</li></ol>
 <figure><a href="../assets/screenshots/pull-zh-CN.jpg"><img src="../assets/screenshots/pull-zh-CN.jpg" alt="定时拉取任务表单，拉取策略下拉框已展开" width="2560" height="1392" loading="lazy"></a><figcaption>添加或编辑定时拉取任务时，可以选择拉取策略。</figcaption></figure>
 <h2 id="controls">管理运行中的任务</h2>
 <p>编辑或移除任务之前，请先停止任务。</p>
@@ -15,6 +15,10 @@
 <p>切换只改变当前显示的列表，其他工作空间中已启动的任务会继续运行。重新打开应用后，所有工作空间的已启动任务都会恢复，上次选择的工作空间和已保存的拉取截止时间也会保留。</p>
 <p>默认工作空间在本地使用，不能在界面中更改它的备份远程；旧版本已经配置的远程会继续保留。自定义工作空间可以在<strong>备份设置</strong>中更改远程、选择自动上传，或获取并导入备份分支。</p>
 <p><strong>重命名工作空间</strong>只改变显示名称，不搬移数据。当前工作空间没有任务时，才可以<strong>移除工作空间</strong>；它的备份数据仍留在磁盘上。默认工作空间不能重命名或移除。</p>
+<h2 id="layout">调整界面布局</h2>
+<p>拖动任务列表右侧的分隔线可以调整列表宽度。向上拖动<strong>活动记录</strong>的顶部边缘可以扩大日志区域，点击标题可以折叠。</p>
+<p>日志会自动换行，也可以选中文字复制。<strong>复制日志</strong>会复制当前工作空间显示的日志；<strong>清空日志</strong>只清空这个视图，不会删除任务或备份历史。阅读较早的内容时，可以关闭<strong>跟随最新日志</strong>。视图最多保留 200 条记录。</p>
+<p>默认工作空间在本地使用，因此不显示备份远端设置。选中自定义工作空间后可以配置远端。添加任务时，从<strong>任务类型</strong>下拉框选择模式；如果保存失败，输入会保留在表单中，可以修改后重试。</p>
 <h2 id="history">浏览与恢复备份</h2>
 <p>选中工作空间备份任务后打开历史记录，选择版本并预览文件，核对内容后再确认恢复。单纯预览不会写入源目录。关于恢复副本和预览有效期，请参阅<a href="backup.html#restore">恢复流程</a>。</p>
 <h2 id="repository">查看仓库信息</h2>
