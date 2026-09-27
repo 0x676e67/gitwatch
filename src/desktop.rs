@@ -90,7 +90,7 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
         Box::new(move |context| {
             theme::apply(&context.egui_ctx);
             configure_fonts(&context.egui_ctx);
-            let (tray, tray_error) = match tray::Tray::new(language) {
+            let (tray, tray_error) = match tray::Tray::new(language, &context.egui_ctx) {
                 Ok(tray) => (Some(tray), None),
                 Err(error) => (None, Some(format!("{error:#}"))),
             };
