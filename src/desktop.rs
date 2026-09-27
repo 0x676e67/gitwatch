@@ -210,7 +210,17 @@ impl Desktop {
                         let mut reorder = None;
                         for (index, row) in self.model.rows.iter().enumerate() {
                             let id = row.draft.id;
-                            let card = ui.push_id(id, |ui| egui::Frame::new().fill(if self.selected == id { theme::SELECTED } else { theme::SURFACE })
+                            let preview_id = egui::Id::new(("task-preview", id));
+                            let starting = id.is_some_and(|id| ui.ctx().drag_started_id() == Some(egui::Id::new(("task-drag", id))));
+                            if starting && !self.model.busy && let Some(id) = id {
+                                egui::DragAndDrop::set_payload(ui.ctx(), id);
+                            }
+                            let dragging = id.is_some_and(|id| egui::DragAndDrop::payload::<Uuid>(ui.ctx()).as_deref() == Some(&id)) && ui.input(|input| input.pointer.primary_down());
+                            let layer = egui::LayerId::new(egui::Order::Tooltip, preview_id);
+                            let card = ui.scope_builder(egui::UiBuilder::new().layer_id(if dragging { layer } else { ui.layer_id() }), |ui| {
+                                // Keep painting the preview when its original slot scrolls out of view.
+                                if dragging { ui.set_clip_rect(egui::Rect::EVERYTHING); }
+                                ui.push_id(id, |ui| egui::Frame::new().fill(if self.selected == id { theme::SELECTED } else { theme::SURFACE })
                                 .stroke(egui::Stroke::new(1.0, if self.selected == id { theme::ACCENT } else { theme::BORDER }))
                                 .corner_radius(10).inner_margin(14).show(ui, |ui| {
                                 ui.set_min_width((ui.available_width() - 2.0).max(0.0));
@@ -239,7 +249,21 @@ impl Desktop {
                                     let next = id.and_then(|id| self.model.pull_schedule.get(&id)).copied().flatten();
                                     ui.small(pull_countdown(next, language));
                                 }
-                            })).inner;
+                            })).inner
+                            }).inner;
+                            if dragging {
+                                // Preserve the grab point while the list scrolls beneath the pointer.
+                                if starting && let Some(origin) = ui.input(|input| input.pointer.press_origin()) {
+                                    ui.data_mut(|data| data.insert_temp(preview_id, origin - card.response.rect.min));
+                                }
+                                if let Some(pointer) = ui.input(|input| input.pointer.interact_pos()) {
+                                    let offset = ui.data(|data| data.get_temp::<egui::Vec2>(preview_id)).unwrap_or_default();
+                                    ui.ctx().transform_layer_shapes(layer, egui::emath::TSTransform::from_translation(pointer - card.response.rect.min - offset));
+                                }
+                                ui.painter().rect_stroke(card.response.rect, 10, egui::Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
+                            } else {
+                                ui.data_mut(|data| data.remove::<egui::Vec2>(preview_id));
+                            }
                             if let Some(target) = id && !self.model.busy {
                                 let mut drop_rect = card.response.rect.expand2(egui::vec2(0.0, 3.0));
                                 if index + 1 == self.model.rows.len() { drop_rect.max.y = drop_rect.max.y.max(ui.clip_rect().bottom()); }
@@ -780,19 +804,20 @@ mod tests {
         let size = egui::vec2(1140.0, 780.0);
         render_sized(app, context, vec![], size);
         let output = render_sized(app, context, vec![], size);
-        let name = &app
+        let name = app
             .model
             .rows
             .iter()
             .find(|row| row.draft.id == Some(source))
             .unwrap()
             .draft
-            .name;
+            .name
+            .clone();
         let clip = output
             .shapes
             .iter()
             .find_map(|shape| match &shape.shape {
-                egui::Shape::Text(text) if &text.galley.job.text == name => Some(shape.clip_rect),
+                egui::Shape::Text(text) if text.galley.job.text == name => Some(shape.clip_rect),
                 _ => None,
             })
             .unwrap();
@@ -813,11 +838,30 @@ mod tests {
             vec![egui::Event::PointerMoved(start), button(start, true)],
             size,
         );
-        render_sized(
+        let output = render_sized(
             app,
             context,
             vec![egui::Event::PointerMoved(start + egui::vec2(0.0, 12.0))],
             size,
+        );
+        let preview = |output: &egui::FullOutput| {
+            output.shapes.iter().find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text)
+                    if text.galley.job.text == name && shape.clip_rect.width() > size.x * 2.0 =>
+                {
+                    Some(text.pos)
+                }
+                _ => None,
+            })
+        };
+        let offset =
+            preview(&output).expect("Missing floating task card") - start - egui::vec2(0.0, 12.0);
+        assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Rect(rect) if rect.fill == egui::Color32::TRANSPARENT && rect.stroke.color == theme::BORDER && rect.rect.contains(start))), "Missing placeholder at the original position");
+        let moved = start + egui::vec2(30.0, 40.0);
+        let output = render_sized(app, context, vec![egui::Event::PointerMoved(moved)], size);
+        assert!(
+            (preview(&output).unwrap() - moved - offset).length() < 0.1,
+            "The card must follow the pointer without changing the grab offset"
         );
         assert_eq!(
             egui::DragAndDrop::payload::<Uuid>(context).as_deref(),
@@ -861,9 +905,13 @@ mod tests {
             vec![egui::Event::PointerMoved(destination)],
             size,
         );
+        assert!(
+            (preview(&output).unwrap() - destination - offset).length() < 0.1,
+            "Scrolling must not move the floating card away from the pointer"
+        );
         assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::LineSegment { stroke, .. } if stroke.color == theme::ACCENT && stroke.width == 2.0)), "Missing drop position indicator");
         if cancel {
-            render_sized(
+            let output = render_sized(
                 app,
                 context,
                 vec![egui::Event::Key {
@@ -875,8 +923,13 @@ mod tests {
                 }],
                 size,
             );
+            assert!(preview(&output).is_none(), "Escape must remove the preview");
         }
-        render_sized(app, context, vec![button(destination, false)], size);
+        let output = render_sized(app, context, vec![button(destination, false)], size);
+        assert!(
+            preview(&output).is_none(),
+            "Releasing must remove the preview"
+        );
         settle(app);
     }
 
