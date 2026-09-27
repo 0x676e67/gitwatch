@@ -1,7 +1,5 @@
 # gitwatch
 
-[Documentation](https://gitwatch.dpdns.org/en/index.html) · [中文文档](https://gitwatch.dpdns.org/zh-CN/index.html) · [Releases](https://github.com/0x676e67/gitwatch/releases)
-
 gitwatch watches your files and commits changes to Git as you work. It can also back up selected files to a separate repository or pull updates on a schedule.
 
 Written in Rust and inspired by [gitwatch/gitwatch](https://github.com/gitwatch/gitwatch), it includes a CLI, terminal UI and desktop app for Windows, macOS and Linux.
