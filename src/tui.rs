@@ -149,7 +149,7 @@ impl Screen {
                         "{} {}: {}\n",
                         if self.field == 1 { ">" } else { " " },
                         language.text("Remote repository (required)"),
-                        "*".repeat(self.space_remote.chars().count())
+                        self.space_remote
                     ));
                 }
                 text.push_str(language.text("Tab: next field  Ctrl+S: save  Esc: cancel"));
@@ -182,7 +182,7 @@ impl Screen {
                 body,
             );
         } else if let Some(draft) = &self.draft {
-            let all_fields: [(&str, &str); 10] = [
+            let all_fields: [(&str, &str); 11] = [
                 ("Name", &draft.name),
                 ("Local path", &draft.path),
                 ("Includes (Alt+Enter: newline)", &draft.includes),
@@ -195,6 +195,10 @@ impl Screen {
                 (
                     "Pull strategy (Left/Right)",
                     draft.pull_strategy.label(language),
+                ),
+                (
+                    "Follow symbolic links (Left/Right)",
+                    language.text(if draft.follow_links { "yes" } else { "no" }),
                 ),
             ];
             let indices = fields(draft.kind);
@@ -218,6 +222,9 @@ impl Screen {
                 .collect();
             if draft.kind == Kind::Pull {
                 list.push(ListItem::new(draft.pull_strategy.description(language)));
+            }
+            if draft.kind == Kind::Workspace {
+                list.push(ListItem::new(language.text("Back up target contents, including outside this project. Restore requires ordinary destination paths.")));
             }
             frame.render_widget(
                 List::new(list).block(Block::bordered().title(language.format(
@@ -434,6 +441,10 @@ impl Screen {
                 self.field = (self.field + 1) % fields(draft.kind).len();
             } else if key == KeyCode::BackTab {
                 self.field = (self.field + fields(draft.kind).len() - 1) % fields(draft.kind).len();
+            } else if fields(draft.kind)[self.field] == 10 {
+                if matches!(key, KeyCode::Left | KeyCode::Right | KeyCode::Char(' ')) {
+                    draft.follow_links = !draft.follow_links;
+                }
             } else if fields(draft.kind)[self.field] == 9 {
                 use PullStrategy::{FastForwardOnly, Merge, Rebase};
                 draft.pull_strategy = match (draft.pull_strategy, key) {
@@ -741,7 +752,7 @@ fn edit(text: &mut String, key: KeyCode, modifiers: KeyModifiers) {
 
 fn fields(kind: Kind) -> &'static [usize] {
     match kind {
-        Kind::Workspace => &[0, 1, 2, 3, 4],
+        Kind::Workspace => &[0, 1, 2, 3, 4, 10],
         Kind::Watch => &[0, 1, 4, 5, 8],
         Kind::Pull => &[0, 1, 6, 5, 4, 7, 9],
     }
@@ -792,6 +803,15 @@ mod tests {
             assert!(screen.model.error.is_none(), "{:?}", screen.model.error);
         };
         settle(&mut screen);
+        screen.key(KeyCode::Char('n'), KeyModifiers::NONE);
+        for _ in 0..5 {
+            screen.key(KeyCode::Tab, KeyModifiers::NONE);
+        }
+        screen.key(KeyCode::Right, KeyModifiers::NONE);
+        assert!(screen.draft.as_ref().unwrap().follow_links);
+        screen.key(KeyCode::Left, KeyModifiers::NONE);
+        assert!(!screen.draft.as_ref().unwrap().follow_links);
+        screen.key(KeyCode::Esc, KeyModifiers::NONE);
         screen.key(KeyCode::Char('n'), KeyModifiers::NONE);
         screen.key(KeyCode::F(2), KeyModifiers::NONE);
         screen.key(KeyCode::F(2), KeyModifiers::NONE);

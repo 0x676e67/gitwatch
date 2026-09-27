@@ -23,7 +23,7 @@ use crate::{
     workspace::{BackupStore, HistoryEntry, RemoteWorkspace, RestorePlan, Workspace},
 };
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum Kind {
     #[default]
     Workspace,
@@ -39,6 +39,8 @@ pub(crate) struct Draft {
     pub path: String,
     pub includes: String,
     pub excludes: String,
+    #[serde(default)]
+    pub follow_links: bool,
     pub branch: String,
     pub remote: String,
     pub url: String,
@@ -176,6 +178,7 @@ impl Default for Draft {
             path: String::new(),
             includes: "AGENTS.md\n.agents".into(),
             excludes: String::new(),
+            follow_links: false,
             branch: String::new(),
             remote: "origin".into(),
             url: String::new(),
@@ -194,6 +197,7 @@ impl Draft {
             path: value.root().to_string_lossy().into_owned(),
             includes: value.includes().join("\n"),
             excludes: value.excludes().join("\n"),
+            follow_links: value.follows_links(),
             branch: value.branch().into(),
             ..Self::default()
         }
@@ -603,7 +607,8 @@ impl Worker {
                         .name(&draft.name)
                         .root(&draft.path)
                         .includes(lines(&draft.includes))
-                        .excludes(lines(&draft.excludes));
+                        .excludes(lines(&draft.excludes))
+                        .follow_links(draft.follow_links);
                     if !draft.branch.trim().is_empty() {
                         builder = builder.branch(draft.branch.trim());
                     }
@@ -1582,10 +1587,10 @@ mod tests {
         );
         let mut old = serde_json::to_value(Draft::default()).unwrap();
         old.as_object_mut().unwrap().remove("pull_strategy");
-        assert_eq!(
-            serde_json::from_value::<Draft>(old).unwrap().pull_strategy,
-            PullStrategy::FastForwardOnly
-        );
+        old.as_object_mut().unwrap().remove("follow_links");
+        let old: Draft = serde_json::from_value(old).unwrap();
+        assert!(!old.follow_links);
+        assert_eq!(old.pull_strategy, PullStrategy::FastForwardOnly);
         command(&mut model, Command::Remove(id));
         assert_eq!(model.rows.len(), 1);
     }

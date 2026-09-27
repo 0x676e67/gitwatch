@@ -224,7 +224,7 @@ impl Desktop {
                     field(ui, language.text("Name"), &mut self.space_name);
                     if create {
                         ui.label(language.text("Remote repository (required)"));
-                        ui.add(egui::TextEdit::singleline(&mut self.space_remote).password(true));
+                        ui.text_edit_singleline(&mut self.space_remote);
                         ui.small(language.text("Each workspace keeps its own tasks and backup history. Switching leaves started tasks running."));
                     }
                     save = ui.add_enabled(!self.spaces.busy() && !self.space_name.trim().is_empty() && (!create || !self.space_remote.trim().is_empty()), Icon::Save.button(language.text("Save"))).clicked();
@@ -615,7 +615,7 @@ impl Desktop {
             ui.label(language.text("Saving does not start a task."));
         });
         egui::ScrollArea::vertical()
-            .id_salt("form")
+            .id_salt(("form", draft.kind, draft.id))
             .max_height((ui.available_height() - 70.0).max(100.0))
             .show(ui, |ui| {
                 ui.add_enabled_ui(draft.id.is_none(), |ui| {
@@ -699,6 +699,8 @@ impl Desktop {
                     });
                     ui.label(language.text("Excluded globs (one per line)"));
                     ui.text_edit_multiline(&mut draft.excludes);
+                    ui.checkbox(&mut draft.follow_links, language.text("Follow symbolic links"));
+                    ui.label(language.text("Back up target contents, including outside this project. Restore requires ordinary destination paths."));
                     ui.label(language.text(
                         "Source files are read only. Each workspace has its own backup branch.",
                     ));
@@ -773,9 +775,7 @@ impl Desktop {
                 "Enter a URL to replace the configured remote. Fetch only reads remote history.",
             ));
             ui.add(
-                egui::TextEdit::singleline(&mut self.remote)
-                    .password(true)
-                    .hint_text(language.text("Remote URL")),
+                egui::TextEdit::singleline(&mut self.remote).hint_text(language.text("Remote URL")),
             );
             ui.checkbox(
                 &mut self.auto_push,
@@ -1188,9 +1188,11 @@ mod tests {
         draft.name = "Desktop notes".into();
         draft.path = source.to_string_lossy().into_owned();
         draft.includes = "notes.md".into();
+        click(&mut app, &context, language.text("Follow symbolic links"));
         click(&mut app, &context, language.text("Save task"));
         settle(&mut app);
         assert_eq!(app.model.rows.len(), 1);
+        assert!(app.model.rows[0].draft.follow_links);
         let selected = app.model.rows[0].draft.id;
         for _ in 0..2 {
             for action in ["Backup settings", "Add task", "Refresh"] {

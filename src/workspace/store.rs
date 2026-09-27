@@ -99,7 +99,7 @@ impl BackupStore {
         self.validate(workspace)?;
         let mut hash = Sha256::new();
         hash.update(serde_json::to_vec(workspace)?);
-        for (path, file) in scan::collect(workspace)? {
+        for (path, file) in scan::collect(workspace, &self.data)? {
             hash.update((path.len() as u64).to_le_bytes());
             hash.update(path.as_bytes());
             hash.update([0, u8::from(file.executable)]);
@@ -238,7 +238,7 @@ impl BackupStore {
         let config = self.config()?;
         let workspace = self.workspace(&config, id)?;
         self.validate(workspace)?;
-        let collected = scan::collect(workspace)?;
+        let collected = scan::collect(workspace, &self.data)?;
         let reference = workspace.reference();
         let parent = self.git.reference(&reference)?;
         let mut blobs = if let Some(parent) = &parent {
@@ -393,6 +393,7 @@ impl BackupStore {
             branch: branch.to_owned(),
             include: manifest.include,
             exclude: manifest.exclude,
+            follow_links: false,
             paused: true,
         };
         self.validate(&workspace)?;

@@ -15,6 +15,8 @@ pub struct Workspace {
     pub(crate) branch: String,
     pub(crate) include: Vec<String>,
     pub(crate) exclude: Vec<String>,
+    #[serde(default)]
+    pub(crate) follow_links: bool,
     pub(crate) paused: bool,
 }
 
@@ -100,6 +102,7 @@ impl Workspace {
                 branch: format!("workspaces/{id}"),
                 include: Vec::new(),
                 exclude: Vec::new(),
+                follow_links: false,
                 paused: false,
             },
         }
@@ -134,6 +137,10 @@ impl Workspace {
     /// Returns relative-path exclusion globs.
     pub fn excludes(&self) -> &[String] {
         &self.exclude
+    }
+    /// Returns whether backups read the contents of symbolic-link targets.
+    pub fn follows_links(&self) -> bool {
+        self.follow_links
     }
     /// Returns whether automatic backup is paused.
     pub fn is_paused(&self) -> bool {
@@ -201,6 +208,12 @@ impl WorkspaceBuilder {
     /// Replaces exclusion globs.
     pub fn excludes(mut self, patterns: Vec<String>) -> Self {
         self.workspace.exclude = patterns;
+        self
+    }
+    /// Reads symbolic-link targets as ordinary files and directories. Disabled by default.
+    /// Targets may be outside the source; restoration still refuses linked destinations.
+    pub fn follow_links(mut self, enabled: bool) -> Self {
+        self.workspace.follow_links = enabled;
         self
     }
     /// Pauses or resumes automatic backup.

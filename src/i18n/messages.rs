@@ -1,5 +1,22 @@
 // English source messages are stable keys. Numbered values are inserted verbatim.
 pub(super) const TEXT: &[(&str, &str)] = &[
+    ("Follow symbolic links", "跟随符号链接"),
+    (
+        "Follow symbolic links (Left/Right)",
+        "跟随符号链接（左右键切换）",
+    ),
+    (
+        "Back up target contents, including outside this project. Restore requires ordinary destination paths.",
+        "备份链接目标的实际内容，可能包含项目外的文件。恢复位置不能经过符号链接。",
+    ),
+    (
+        "Back up symbolic-link target contents, including outside the source directory.",
+        "备份符号链接目标的实际内容，包括源目录外的文件。",
+    ),
+    (
+        "Enable or disable reading symbolic-link targets during backup.",
+        "启用或禁用备份时读取符号链接目标。",
+    ),
     ("Save", "保存"),
     ("Workspaces", "工作空间"),
     ("Default workspace", "默认工作空间"),
@@ -1049,6 +1066,16 @@ pub(super) const TEXT: &[(&str, &str)] = &[
 
 // Existing core errors carry English text. Only known application templates are translated.
 pub(super) const ERRORS: &[(&str, &str)] = &[
+    ("Symbolic link cycle: {}", "符号链接存在循环：{0}"),
+    (
+        "Selection exceeds 128 directory levels",
+        "所选内容超过 128 层目录",
+    ),
+    ("Cannot resolve symbolic link: {}", "无法解析符号链接：{0}"),
+    (
+        "Symbolic link targets a protected path: {}",
+        "符号链接指向受保护的路径：{0}",
+    ),
     (
         "The default workspace is local; its remote cannot be changed",
         "默认工作空间仅在本地使用，不能更改远程仓库",

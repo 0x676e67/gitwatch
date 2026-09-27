@@ -444,26 +444,119 @@ fn selection_and_store_boundaries_reject_unsafe_paths_and_branch_aliases() {
     assert!(store.history(first.id(), None, 10).unwrap().is_empty());
 }
 
-#[cfg(unix)]
 #[test]
-fn symlinks_are_never_followed_during_backup_or_restore() {
-    use std::os::unix::fs::symlink;
+fn following_links_backs_up_contents_without_changing_restore_boundaries() {
+    fn link(target: &Path, path: &Path, directory: bool) {
+        #[cfg(unix)]
+        {
+            let _ = directory;
+            std::os::unix::fs::symlink(target, path).unwrap();
+        }
+        #[cfg(windows)]
+        if directory {
+            std::os::windows::fs::symlink_dir(target, path).unwrap();
+        } else {
+            std::os::windows::fs::symlink_file(target, path).unwrap();
+        }
+    }
+    fn unlink_dir(path: &Path) {
+        #[cfg(unix)]
+        fs::remove_file(path).unwrap();
+        #[cfg(windows)]
+        fs::remove_dir(path).unwrap();
+    }
     let temp = TempDir::new().unwrap();
     let source = temp.path().join("source");
-    project(&source, "original");
-    let store = BackupStore::open(temp.path().join("store")).unwrap();
-    let workspace = workspace(&source, "notes");
-    store.register(workspace.clone()).unwrap();
-    let snapshot = store.backup(workspace.id()).unwrap();
     let outside = temp.path().join("outside");
-    fs::write(&outside, "outside").unwrap();
-    fs::remove_file(source.join("AGENTS.md")).unwrap();
-    symlink(&outside, source.join("AGENTS.md")).unwrap();
+    fs::create_dir(&source).unwrap();
+    fs::create_dir(&outside).unwrap();
+    fs::write(source.join("notes.md"), "local").unwrap();
+    fs::write(outside.join("SKILL.md"), "skill v1").unwrap();
+    fs::write(outside.join(".env"), "secret").unwrap();
+    link(&outside, &source.join("skills"), true);
+    link(
+        &Path::new("..").join("outside").join("SKILL.md"),
+        &source.join("prompt.md"),
+        false,
+    );
+    let store = BackupStore::open(temp.path().join("store")).unwrap();
+    let workspace = Workspace::builder("agents", &source)
+        .include("skills")
+        .include("skills/SKILL.md")
+        .include("prompt.md")
+        .include("notes.md")
+        .build()
+        .unwrap();
+    // Old configurations retain the opt-in boundary.
+    let mut legacy = serde_json::to_value(&workspace).unwrap();
+    legacy.as_object_mut().unwrap().remove("follow_links");
+    assert!(
+        !serde_json::from_value::<Workspace>(legacy)
+            .unwrap()
+            .follows_links()
+    );
+    store.register(workspace.clone()).unwrap();
     assert!(store.backup(workspace.id()).is_err());
+    assert!(store.history(workspace.id(), None, 10).unwrap().is_empty());
+    let workspace = workspace.edit().follow_links(true).build().unwrap();
+    store.update(workspace.clone()).unwrap();
+    assert!(store.workspaces().unwrap()[0].follows_links());
+    let snapshot = store.backup(workspace.id()).unwrap();
+    assert_eq!(snapshot.files(), 3);
+    let fingerprint = store.fingerprint(workspace.id()).unwrap();
+    fs::write(outside.join("SKILL.md"), "skill v2").unwrap();
+    assert_ne!(fingerprint, store.fingerprint(workspace.id()).unwrap());
     assert!(
         store
             .preview_restore(workspace.id(), snapshot.commit(), &[])
             .is_err()
     );
-    assert_eq!(fs::read(&outside).unwrap(), b"outside");
+    link(&outside, &outside.join("loop"), true);
+    assert!(
+        store
+            .backup(workspace.id())
+            .unwrap_err()
+            .to_string()
+            .contains("cycle")
+    );
+    unlink_dir(&outside.join("loop"));
+    link(store.directory(), &outside.join("backup"), true);
+    assert!(store.backup(workspace.id()).is_err());
+    unlink_dir(&outside.join("backup"));
+    link(&outside.join(".env"), &outside.join("secret.txt"), false);
+    assert!(
+        store
+            .backup(workspace.id())
+            .unwrap_err()
+            .to_string()
+            .contains("protected")
+    );
+    fs::remove_file(outside.join("secret.txt")).unwrap();
+    link(&outside.join("missing"), &outside.join("broken"), false);
+    assert!(store.backup(workspace.id()).is_err());
+    // Exclusions refer to the visible source path, including linked children.
+    store
+        .update(workspace.edit().exclude("skills/broken").build().unwrap())
+        .unwrap();
+    assert!(store.backup(workspace.id()).unwrap().changed());
+    fs::remove_file(outside.join("broken")).unwrap();
+    assert_eq!(fs::read(outside.join("SKILL.md")).unwrap(), b"skill v2");
+    unlink_dir(&source.join("skills"));
+    fs::remove_file(source.join("prompt.md")).unwrap();
+    let plan = store
+        .preview_restore(workspace.id(), snapshot.commit(), &[])
+        .unwrap();
+    assert!(store.apply_restore(plan.id()).unwrap().error().is_none());
+    assert_eq!(
+        fs::read(source.join("skills/SKILL.md")).unwrap(),
+        b"skill v1"
+    );
+    assert_eq!(fs::read(source.join("prompt.md")).unwrap(), b"skill v1");
+    assert!(
+        !fs::symlink_metadata(source.join("skills"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read(outside.join("SKILL.md")).unwrap(), b"skill v2");
 }
