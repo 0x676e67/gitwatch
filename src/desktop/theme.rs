@@ -56,8 +56,7 @@ pub(super) fn apply(context: &egui::Context) {
         widget.weak_bg_fill = SELECTED;
         widget.bg_stroke = Stroke::new(1.0, ACCENT);
     }
-    widgets.active.bg_fill = ACCENT;
-    widgets.active.weak_bg_fill = ACCENT;
-    widgets.active.fg_stroke = Stroke::new(1.0, Color32::from_rgb(12, 34, 32));
+    widgets.active.bg_fill = Color32::from_rgb(39, 94, 84);
+    widgets.active.weak_bg_fill = widgets.active.bg_fill;
     context.set_global_style(style);
 }
