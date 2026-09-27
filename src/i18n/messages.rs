@@ -320,8 +320,25 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     ),
     ("Remove binding", "移除绑定"),
     (
-        "Clones if needed, then pulls at the configured interval. Dirty or divergent repositories require your attention.",
-        "需要时先克隆仓库，再按设定的间隔拉取。有未提交修改或历史分歧时，需要你手动处理。",
+        "Conflicts stop the task. Resolve or abort them in Git, then restart it.",
+        "遇到冲突时任务会停止。请在 Git 中解决或中止操作，再重新启动任务。",
+    ),
+    ("Pull strategy", "拉取策略"),
+    ("Pull strategy (Left/Right)", "拉取策略（左右方向键）"),
+    ("Fast-forward only", "仅快进"),
+    ("Merge", "合并"),
+    ("Rebase", "变基"),
+    (
+        "Stops this update if local and remote histories have diverged.",
+        "本地与远端历史分叉时，停止本次更新。",
+    ),
+    (
+        "Fast-forwards when possible; otherwise creates a merge commit.",
+        "可以快进时直接更新，否则创建合并提交。",
+    ),
+    (
+        "Replays local commits on remote history and changes their IDs. Use for unpublished commits.",
+        "在远端历史上重放本地提交，会改变提交 ID。适用于尚未发布的提交。",
     ),
     (
         "Commits changes in the selected Git repository. The task stops automatic writes if the branch changes.",
@@ -590,8 +607,12 @@ pub(super) const TEXT: &[(&str, &str)] = &[
         "定期检查文件内容，不使用文件系统通知",
     ),
     (
-        "Clone or periodically fast-forward a local repository",
-        "克隆仓库或定期快进更新本地仓库",
+        "Clone or periodically update a local repository",
+        "克隆仓库或定期更新本地仓库",
+    ),
+    (
+        "How to integrate remote history: ff-only, merge or rebase",
+        "拉取策略：ff-only（仅快进）、merge（合并）或 rebase（变基）",
     ),
     (
         "Explicit form of the legacy positional watch command",
@@ -849,8 +870,8 @@ pub(super) const TEXT: &[(&str, &str)] = &[
         "本地仓库有未提交的文件，已跳过更新",
     ),
     (
-        "Resolve the active Git operation before pulling",
-        "请先完成当前 Git 操作，再拉取",
+        "Pull task stopped; resolve or abort the active Git operation, then restart the task",
+        "拉取任务已停止；请解决或中止当前 Git 操作，再重新启动任务",
     ),
     (
         "Destination is empty; provide a repository URL to clone",

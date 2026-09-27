@@ -15,7 +15,7 @@ use crate::{
     git::Lock,
     i18n::{Language, Text},
     paths,
-    pull::{PullOptions, PullTask},
+    pull::{PullOptions, PullStrategy, PullTask},
     watch::{self, Event, MonitorOptions, Repository, StopToken, WatchOptions},
     workspace::{BackupStore, HistoryEntry, RemoteWorkspace, RestorePlan, Workspace},
 };
@@ -40,6 +40,8 @@ pub(crate) struct Draft {
     pub remote: String,
     pub url: String,
     pub interval: String,
+    #[serde(default)]
+    pub pull_strategy: PullStrategy,
     pub delay: String,
 }
 
@@ -122,6 +124,26 @@ impl Kind {
     }
 }
 
+// ===== impl PullStrategy =====
+
+impl PullStrategy {
+    pub(crate) fn label(self, language: Language) -> &'static str {
+        language.text(match self {
+            Self::FastForwardOnly => "Fast-forward only",
+            Self::Merge => "Merge",
+            Self::Rebase => "Rebase",
+        })
+    }
+
+    pub(crate) fn description(self, language: Language) -> &'static str {
+        language.text(match self {
+            Self::FastForwardOnly => "Stops this update if local and remote histories have diverged.",
+            Self::Merge => "Fast-forwards when possible; otherwise creates a merge commit.",
+            Self::Rebase => "Replays local commits on remote history and changes their IDs. Use for unpublished commits.",
+        })
+    }
+}
+
 // ===== impl Draft =====
 
 impl Default for Draft {
@@ -137,6 +159,7 @@ impl Default for Draft {
             remote: "origin".into(),
             url: String::new(),
             interval: "3600".into(),
+            pull_strategy: PullStrategy::default(),
             delay: "2".into(),
         }
     }
@@ -174,7 +197,9 @@ impl Draft {
     }
 
     fn pull_options(&self) -> Result<PullOptions> {
-        let mut options = PullOptions::new(&self.path).interval(seconds(&self.interval)?);
+        let mut options = PullOptions::new(&self.path)
+            .interval(seconds(&self.interval)?)
+            .strategy(self.pull_strategy);
         if !self.remote.trim().is_empty() {
             options = options.remote(self.remote.trim());
         }
@@ -922,6 +947,7 @@ mod tests {
             Command::Save(Draft {
                 kind: Kind::Pull,
                 name: "Upstream".into(),
+                pull_strategy: PullStrategy::Rebase,
                 path: temp.path().join("clone").to_string_lossy().into_owned(),
                 url: "https://example.invalid/repo.git".into(),
                 ..Draft::default()
@@ -932,6 +958,22 @@ mod tests {
         wait(&mut model);
         assert_eq!(model.rows.len(), 2);
         assert!(model.rows.iter().all(|r| !r.running));
+        assert_eq!(
+            model
+                .rows
+                .iter()
+                .find(|r| r.draft.kind == Kind::Pull)
+                .unwrap()
+                .draft
+                .pull_strategy,
+            PullStrategy::Rebase
+        );
+        let mut old = serde_json::to_value(Draft::default()).unwrap();
+        old.as_object_mut().unwrap().remove("pull_strategy");
+        assert_eq!(
+            serde_json::from_value::<Draft>(old).unwrap().pull_strategy,
+            PullStrategy::FastForwardOnly
+        );
         command(&mut model, Command::Remove(id));
         assert_eq!(model.rows.len(), 1);
     }

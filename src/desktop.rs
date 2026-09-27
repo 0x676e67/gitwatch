@@ -13,6 +13,7 @@ use crate::{
     Result,
     i18n::Language,
     interface::{Command, Draft, Kind, Model, lines},
+    pull::PullStrategy,
 };
 
 fn pull_countdown(next: Option<std::time::Instant>, language: Language) -> String {
@@ -279,6 +280,7 @@ impl Desktop {
         let running = row.running;
         let kind = row.draft.kind;
         let draft = row.draft.clone();
+        let pull_strategy = draft.pull_strategy;
         let repository_path = draft.path.clone();
         let repository_remote = draft.remote.clone();
         ui.heading(&draft.name);
@@ -341,7 +343,13 @@ impl Desktop {
             egui::ScrollArea::vertical().id_salt("repository-details").max_height((ui.available_height() - 100.0).max(100.0)).show(ui, |ui| {
                 self.repository.show(ui, &repository_path, &repository_remote, language);
                 ui.add_space(12.0);
-                ui.small(language.text(if kind == Kind::Pull { "Clones if needed, then pulls at the configured interval. Dirty or divergent repositories require your attention." } else { "Commits changes in the selected Git repository. The task stops automatic writes if the branch changes." }));
+                if kind == Kind::Pull {
+                    ui.label(format!("{}: {}", language.text("Pull strategy"), pull_strategy.label(language)));
+                    ui.small(pull_strategy.description(language));
+                    ui.small(language.text("Conflicts stop the task. Resolve or abort them in Git, then restart it."));
+                } else {
+                    ui.small(language.text("Commits changes in the selected Git repository. The task stops automatic writes if the branch changes."));
+                }
             });
             return;
         }
@@ -495,6 +503,25 @@ impl Desktop {
                     );
                 }
                 if draft.kind == Kind::Pull {
+                    egui::ComboBox::from_label(language.text("Pull strategy"))
+                        .selected_text(draft.pull_strategy.label(language))
+                        .show_ui(ui, |ui| {
+                            for strategy in [
+                                PullStrategy::FastForwardOnly,
+                                PullStrategy::Merge,
+                                PullStrategy::Rebase,
+                            ] {
+                                ui.selectable_value(
+                                    &mut draft.pull_strategy,
+                                    strategy,
+                                    strategy.label(language),
+                                );
+                            }
+                        });
+                    ui.small(draft.pull_strategy.description(language));
+                    ui.small(language.text(
+                        "Conflicts stop the task. Resolve or abort them in Git, then restart it.",
+                    ));
                     field(
                         ui,
                         language.text("Clone URL (for an absent or empty destination)"),
@@ -853,5 +880,28 @@ mod tests {
         assert_eq!(app.selected, app.model.rows[0].draft.id);
         assert!(app.model.history.is_empty() && app.model.plan.is_none());
         assert!(app.model.text.is_empty() && !app.confirm && !app.remove);
+        for (previous, next, strategy) in [
+            ("Fast-forward only", "Merge", PullStrategy::Merge),
+            ("Merge", "Rebase", PullStrategy::Rebase),
+        ] {
+            click(&mut app, &context, "Edit");
+            click(&mut app, &context, previous);
+            click(&mut app, &context, next);
+            click(&mut app, &context, "Save task");
+            settle(&mut app);
+            assert_eq!(app.model.rows[0].draft.pull_strategy, strategy);
+        }
+        click(&mut app, &context, "English");
+        click(&mut app, &context, "简体中文");
+        settle(&mut app);
+        click(&mut app, &context, "编辑");
+        click(&mut app, &context, "变基");
+        click(&mut app, &context, "仅快进");
+        click(&mut app, &context, "保存任务");
+        settle(&mut app);
+        assert_eq!(
+            app.model.rows[0].draft.pull_strategy,
+            PullStrategy::FastForwardOnly
+        );
     }
 }

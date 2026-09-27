@@ -14,6 +14,7 @@ use crate::{
     Result,
     i18n::Language,
     interface::{Command, Draft, Kind, Model},
+    pull::PullStrategy,
 };
 
 struct Screen {
@@ -118,7 +119,7 @@ impl Screen {
             header,
         );
         if let Some(draft) = &self.draft {
-            let all_fields = [
+            let all_fields: [(&str, &str); 10] = [
                 ("Name", &draft.name),
                 ("Local path", &draft.path),
                 ("Includes (Alt+Enter: newline)", &draft.includes),
@@ -128,10 +129,14 @@ impl Screen {
                 ("Clone URL (pull)", &draft.url),
                 ("Pull interval, seconds", &draft.interval),
                 ("Watch delay, seconds", &draft.delay),
+                (
+                    "Pull strategy (Left/Right)",
+                    draft.pull_strategy.label(language),
+                ),
             ];
             let indices = fields(draft.kind);
             let fields: Vec<_> = indices.iter().map(|index| all_fields[*index]).collect();
-            let list: Vec<_> = fields
+            let mut list: Vec<_> = fields
                 .iter()
                 .enumerate()
                 .map(|(i, (label, value))| {
@@ -148,6 +153,9 @@ impl Screen {
                     })
                 })
                 .collect();
+            if draft.kind == Kind::Pull {
+                list.push(ListItem::new(draft.pull_strategy.description(language)));
+            }
             frame.render_widget(
                 List::new(list).block(Block::bordered().title(language.format(
                     "{0} task — F2: mode; Tab: field; Ctrl+S: save; Esc: cancel",
@@ -344,6 +352,18 @@ impl Screen {
                 self.field = (self.field + 1) % fields(draft.kind).len();
             } else if key == KeyCode::BackTab {
                 self.field = (self.field + fields(draft.kind).len() - 1) % fields(draft.kind).len();
+            } else if fields(draft.kind)[self.field] == 9 {
+                use PullStrategy::{FastForwardOnly, Merge, Rebase};
+                draft.pull_strategy = match (draft.pull_strategy, key) {
+                    (FastForwardOnly, KeyCode::Right | KeyCode::Char(' '))
+                    | (Rebase, KeyCode::Left) => Merge,
+                    (Merge, KeyCode::Right | KeyCode::Char(' '))
+                    | (FastForwardOnly, KeyCode::Left) => Rebase,
+                    (Rebase, KeyCode::Right | KeyCode::Char(' ')) | (Merge, KeyCode::Left) => {
+                        FastForwardOnly
+                    }
+                    (strategy, _) => strategy,
+                };
             } else {
                 let value = match fields(draft.kind)[self.field] {
                     0 => &mut draft.name,
@@ -552,7 +572,7 @@ fn fields(kind: Kind) -> &'static [usize] {
     match kind {
         Kind::Workspace => &[0, 1, 2, 3, 4],
         Kind::Watch => &[0, 1, 4, 5, 8],
-        Kind::Pull => &[0, 1, 6, 5, 4, 7],
+        Kind::Pull => &[0, 1, 6, 5, 4, 7, 9],
     }
 }
 
@@ -603,9 +623,19 @@ mod tests {
         for c in "https://example.invalid/repo.git".chars() {
             screen.key(KeyCode::Char(c), KeyModifiers::NONE);
         }
+        for _ in 0..4 {
+            screen.key(KeyCode::Tab, KeyModifiers::NONE);
+        }
+        screen.key(KeyCode::Right, KeyModifiers::NONE);
+        screen.key(KeyCode::Right, KeyModifiers::NONE);
+        screen.key(KeyCode::Left, KeyModifiers::NONE);
         screen.key(KeyCode::Char('s'), KeyModifiers::CONTROL);
         settle(&mut screen);
         assert_eq!(screen.model.rows[0].draft.name, "Upstream mirror");
+        assert_eq!(
+            screen.model.rows[0].draft.pull_strategy,
+            PullStrategy::Merge
+        );
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 32)).unwrap();
         terminal.draw(|frame| screen.draw(frame)).unwrap();

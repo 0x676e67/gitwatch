@@ -55,7 +55,7 @@ The desktop and TUI show a notice when a newer stable version is available. Inte
 
 The desktop uses one built-in dark theme with consistent spacing and task status colors.
 
-The task list stays visible while you add tasks or change backup settings. Select a task to return to its details. Running pull tasks show the time remaining until their next attempt; a failed attempt waits the same interval before retrying.
+The task list stays visible while you add tasks or change backup settings. Select a task to return to its details. Running pull tasks show the time remaining until their next attempt. Ordinary failures retry at that interval; an unfinished merge or rebase stops the task for you to handle.
 
 Task details include a repository link, local branches and tags, commit and contributor counts, and the latest commit. History counts cover the local HEAD, including merges; shallow clones show a warning. Git counts text lines in committed files at the same local HEAD, including comments and blank lines. The breakdown groups files by extension; it does not parse programming languages. Binary files are counted separately. Information refreshes in the background while the details are open, or when you click **Refresh information**. Repository information comes from local Git commands and does not make network requests. These desktop additions are available in the source build and the next release.
 
@@ -129,15 +129,25 @@ Run `workspace fetch` when you want to retrieve remote history. Fetching doesn't
 ```sh
 gitwatch pull ./upstream --url https://github.com/gitwatch/gitwatch.git --every 3600
 gitwatch pull ./existing-repo --remote origin --once
+gitwatch pull ./existing-repo --strategy merge --every 600
+gitwatch pull ./existing-repo --strategy rebase --once
 ```
 
 The first command clones into an absent or empty directory, then checks for updates every hour. The second updates an existing checkout once and exits.
 
-Updates use `pull --ff-only --no-rebase`. If you have uncommitted changes, switch branches, or need to resolve a merge or diverged history, gitwatch leaves that work for you to handle. It won't stash, reset or force-update the checkout.
+Choose a pull strategy in the desktop task form's **Pull strategy** dropdown, or pass `--strategy` on the CLI. In the TUI, select the strategy field and use Left/Right or Space.
+
+- `ff-only` is the default, including for existing tasks. It refuses divergent history.
+- `merge` fast-forwards when possible and creates a merge commit when histories diverge.
+- `rebase` replays local commits on the remote history, changing their IDs. Use it for commits you haven't shared.
+
+The task's strategy overrides Git's pull preferences for that invocation without changing your Git configuration. Merge and rebase need your Git author identity configured. gitwatch skips dirty checkouts and refuses to continue after a branch switch; it won't stash, reset or force-update the checkout.
+
+If a merge or rebase leaves an unfinished operation, the task stops and records an error. Resolve it with Git and continue, or run `git merge --abort` / `git rebase --abort`, then restart the task. Network failures still retry at the configured interval.
 
 ## Interactive interfaces
 
-If you'd rather manage tasks interactively, use `gitwatch tui` or `gitwatch desktop`. Both use the same workspace store as the CLI. Adding a task saves its settings; start it when you're ready. Closing the interface stops its tasks once any operation already in progress finishes. This version doesn't install a daemon or run in the system tray.
+If you'd rather manage tasks interactively, use `gitwatch tui` or `gitwatch desktop`. Both use the same workspace store as the CLI. Adding a task saves its settings; start it when you're ready. Closing the TUI stops its tasks after any current operation finishes. The desktop app keeps running in the tray when you close its window; choose Quit in the tray menu to stop it. No system service is installed.
 
 In the desktop app, you can choose files and folders, configure tasks, import workspace branches and browse backup history. You can also review file changes before confirming a restore.
 
