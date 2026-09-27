@@ -1,0 +1,13 @@
+<h2 id="start">Watch a file or directory</h2>
+<pre><code>gitwatch ./notes
+gitwatch -s 2 -r origin -b main ./notes
+gitwatch -f -m "Notes: %d" ./notes
+gitwatch watch ./notes --once</code></pre>
+<p>The target must be inside a Git repository. The second command waits two seconds after changes settle, then commits and pushes to <code>origin</code> on <code>main</code>. The third commits existing changes at startup and uses a custom message; <code>%d</code> expands to the date and time. The last command makes one pass and exits.</p>
+<h2 id="scope">What gets committed</h2>
+<p>Only the selected file or directory is committed. Git ignore rules apply, and deletions are recorded. If you have staged changes inside that path, gitwatch waits for you to handle them. Staged changes elsewhere are left alone.</p>
+<p>Without <code>-f</code>, existing changes become the starting baseline. A later change triggers a commit. gitwatch uses filesystem events and periodically checks file contents. Pass <code>--polling</code> if filesystem notifications are unreliable.</p>
+<p>gitwatch waits while another Git operation is in progress. Finish or abort that operation yourself before expecting new automatic commits.</p>
+<h2 id="shell">Coming from the shell version</h2>
+<div class="table-wrap"><table><thead><tr><th>Option</th><th>Behavior</th></tr></thead><tbody><tr><td><code>-R</code></td><td>Pull with rebase before pushing. Off by default.</td></tr><tr><td><code>-x</code></td><td>Filter events that trigger a commit. It does not exclude files from that commit.</td></tr><tr><td><code>-c</code></td><td>Run a command to generate the commit message. No shell is used unless you invoke one explicitly.</td></tr><tr><td><code>-h</code> / <code>-C</code></td><td>These flags take no argument.</td></tr></tbody></table></div>
+<p>Run <code>gitwatch watch --help</code> for the complete option list. Failed commands return a nonzero exit code. This is an independent implementation; check the options you rely on when replacing a shell-script installation.</p>

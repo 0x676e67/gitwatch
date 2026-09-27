@@ -1,0 +1,10 @@
+<h2 id="open">Open the terminal interface</h2>
+<p>Install with <code>--features tui</code> or <code>--all-features</code>, then run:</p>
+<pre><code>gitwatch tui</code></pre>
+<p>The TUI uses the same task settings and backup store as the desktop and CLI. Quit the other interactive interface before opening it with the same data directory.</p>
+<h2 id="keys">Common shortcuts</h2>
+<div class="table-wrap"><table><thead><tr><th>Key</th><th>Action</th></tr></thead><tbody><tr><td><kbd>n</kbd></td><td>Add a task</td></tr><tr><td><kbd>F2</kbd></td><td>Select the task mode in the form</td></tr><tr><td><kbd>Tab</kbd> / <kbd>Ctrl+S</kbd></td><td>Move between fields / save</td></tr><tr><td><kbd>s</kbd> / <kbd>b</kbd></td><td>Start or stop / run once</td></tr><tr><td><kbd>h</kbd></td><td>Open backup history</td></tr><tr><td><kbd>v</kbd> / <kbd>R</kbd></td><td>Preview a restore / open confirmation</td></tr><tr><td><kbd>F3</kbd></td><td>Switch language and save the choice</td></tr><tr><td><kbd>q</kbd> / <kbd>Ctrl+C</kbd></td><td>Exit</td></tr></tbody></table></div>
+<p>Shortcuts depend on the current view; the footer lists the actions available there. In a pull form, use Left/Right or Space on the strategy field.</p>
+<h2 id="exit">Stopping and resuming</h2>
+<p>Quitting waits for current operations to finish and stops the workers. Started tasks are remembered and resume when you reopen the TUI or desktop. Use the task's Stop action if you want it to remain stopped.</p>
+<p>For Chinese text, choose a terminal font that includes Chinese characters. Unlike the desktop app, the TUI uses your terminal's font.</p>

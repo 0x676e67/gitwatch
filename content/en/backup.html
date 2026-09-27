@@ -1,0 +1,29 @@
+<h2 id="select">Select the files to save</h2>
+<p>Workspace backups copy selected files to a dedicated bare Git repository. Each workspace has its own branch. Your source directory does not need to be a Git repository, and gitwatch does not stage or commit anything in it.</p>
+<pre><code>gitwatch workspace add ./project-a --name project-a --include notes.md --include notes
+gitwatch workspace add ./project-b --name project-b --include notes.md --include notes
+gitwatch workspace list
+gitwatch workspace backup project-a
+gitwatch workspace watch --all</code></pre>
+<p>Replace these paths and selections with your own. Adding a workspace saves its settings; the <code>backup</code> command makes a single backup, while <code>watch --all</code> keeps watching registered workspaces.</p>
+<h2 id="storage">Branches and file boundaries</h2>
+<p>Each workspace has a stable UUID and a branch named <code>workspaces/&lt;uuid&gt;</code> by default. A backup contains <code>manifest.json</code> and <code>files/&lt;project-relative-path&gt;</code>. Absolute source paths stay in local configuration, so another machine can bind the same backup to a different directory.</p>
+<p>You can select files ignored by the source project's Git rules. Git metadata and known credential or cache paths are still excluded. Symlinks and Windows reparse points are rejected. A scan is limited to 16 MiB per file, 128 MiB of content and 10,000 files.</p>
+<div class="callout">If a selected file disappears, its last backup is retained and reported. A missing source directory produces an error instead of a new backup. Workspace backups therefore do not mirror source deletions in the same way as watch mode.</div>
+<h2 id="remote">Use a remote backup repository</h2>
+<pre><code>gitwatch workspace remote https://github.com/you/private-backup.git --auto-push
+gitwatch workspace fetch</code></pre>
+<p>Use a repository appropriate for the contents you are backing up. Leave out the remote configuration for local-only backups. Fetch retrieves history without restoring files. Push never uses force; if histories diverge, your local backup remains intact and you must reconcile the histories yourself.</p>
+<h2 id="restore">Preview, then restore</h2>
+<p>On another machine, configure the remote and fetch its branches, then bind a workspace to a local directory:</p>
+<pre><code>gitwatch workspace remote https://github.com/you/private-backup.git
+gitwatch workspace fetch
+gitwatch workspace import workspaces/&lt;uuid&gt; ./local-project
+gitwatch workspace history &lt;uuid&gt;
+gitwatch workspace restore &lt;uuid&gt; --preview
+gitwatch workspace restore &lt;uuid&gt; --plan &lt;preview-uuid&gt; --show notes.md
+gitwatch workspace restore &lt;uuid&gt; --plan &lt;preview-uuid&gt; --confirm</code></pre>
+<p>Replace <code>&lt;uuid&gt;</code> with the workspace UUID and <code>&lt;preview-uuid&gt;</code> with the preview ID returned by the command. Angle brackets mark placeholders; do not type them literally. Import leaves the workspace paused so you can inspect and restore before starting a watcher.</p>
+<ol><li>Create a preview and review the files that would change.</li><li>Inspect file contents using <code>--show</code>, or use the desktop preview.</li><li>Confirm that exact preview when you are ready to write files.</li></ol>
+<p>A preview expires after 24 hours. If destination contents change, create a new preview. Before replacing files, gitwatch saves their previous contents under <code>recovery/&lt;preview-uuid&gt;/files/</code> in the local store. Extra destination files are left alone.</p>
+<p>If a restore stops partway through, its report identifies the files written and the recovery copies. Keep the report and recovery directory until you have checked the result.</p>

@@ -1,0 +1,29 @@
+<h2 id="select">选择要保存的文件</h2>
+<p>工作空间备份把指定文件复制到独立的裸 Git 仓库，每个工作空间使用一个分支。源目录不必是 Git 仓库，gitwatch 也不会在源目录中暂存文件或创建提交。</p>
+<pre><code>gitwatch workspace add ./project-a --name project-a --include notes.md --include notes
+gitwatch workspace add ./project-b --name project-b --include notes.md --include notes
+gitwatch workspace list
+gitwatch workspace backup project-a
+gitwatch workspace watch --all</code></pre>
+<p>请替换成自己的目录与文件选择。添加工作空间只保存设置；<code>backup</code> 执行一次备份，<code>watch --all</code> 则持续监听已注册的工作空间。</p>
+<h2 id="storage">分支与文件边界</h2>
+<p>每个工作空间有稳定的 UUID，默认分支名为 <code>workspaces/&lt;uuid&gt;</code>。备份包含 <code>manifest.json</code> 和 <code>files/&lt;项目相对路径&gt;</code>。源目录的绝对路径只保存在本地配置中，因此另一台设备可以将同一份备份绑定到不同目录。</p>
+<p>可以选择被源项目 Git 规则忽略的文件，但 Git 元数据及已知凭据、缓存路径仍会排除。不接受符号链接或 Windows 重解析点。单文件上限为 16 MiB，一次扫描的内容上限为 128 MiB、文件数量上限为 10,000。</p>
+<div class="callout">选中的文件消失后，会保留并报告它的最后一次备份。整个源目录不可用时会报错，不创建新备份。因此，工作空间备份与监听模式对源文件删除的处理不同。</div>
+<h2 id="remote">配置远程备份仓库</h2>
+<pre><code>gitwatch workspace remote https://github.com/you/private-backup.git --auto-push
+gitwatch workspace fetch</code></pre>
+<p>根据备份内容选择适当的远程仓库。只需要本地备份时，可以不配置远程。获取历史不会恢复文件，推送也不会强制覆盖远程。如果历史发生分叉，本地备份仍会保留，需要你手动处理。</p>
+<h2 id="restore">先预览，再恢复</h2>
+<p>在另一台设备配置远程并获取备份分支，然后把工作空间绑定到本地目录：</p>
+<pre><code>gitwatch workspace remote https://github.com/you/private-backup.git
+gitwatch workspace fetch
+gitwatch workspace import workspaces/&lt;uuid&gt; ./local-project
+gitwatch workspace history &lt;uuid&gt;
+gitwatch workspace restore &lt;uuid&gt; --preview
+gitwatch workspace restore &lt;uuid&gt; --plan &lt;preview-uuid&gt; --show notes.md
+gitwatch workspace restore &lt;uuid&gt; --plan &lt;preview-uuid&gt; --confirm</code></pre>
+<p>将 <code>&lt;uuid&gt;</code> 替换为工作空间 UUID，将 <code>&lt;preview-uuid&gt;</code> 替换为预览命令返回的 ID。尖括号表示占位符，不要原样输入。导入后工作空间保持暂停，便于先检查历史并恢复文件。</p>
+<ol><li>创建预览，核对将要发生变化的文件。</li><li>使用 <code>--show</code> 查看文件内容，或在桌面界面中检查预览。</li><li>确认准备写入后，再确认这份预览。</li></ol>
+<p>预览有效期为 24 小时；目标内容有变化时，需要重新创建预览。替换文件前，gitwatch 会把原内容保存在本地数据目录的 <code>recovery/&lt;preview-uuid&gt;/files/</code> 下。目标目录中额外存在的文件不会被删除。</p>
+<p>如果恢复中途停止，报告会列出已写入的文件及恢复副本的位置。检查完成前，请保留报告和恢复目录。</p>
