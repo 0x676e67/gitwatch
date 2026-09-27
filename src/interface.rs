@@ -1084,8 +1084,8 @@ mod tests {
                     }
                     Kind::Watch => git(&source, &["show", "HEAD:notes.md"]) == "second",
                     Kind::Pull => {
-                        fs::read_to_string(path.join("notes.md")).unwrap() == "second"
-                            && model.pull_schedule.get(&id).copied().flatten() > previous_deadline
+                        model.pull_schedule.get(&id).copied().flatten() > previous_deadline
+                            && fs::read_to_string(path.join("notes.md")).unwrap() == "second"
                     }
                 };
                 if complete {
