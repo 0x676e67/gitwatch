@@ -16,7 +16,7 @@ cargo install gitwatch --locked --features tui      # CLI + TUI
 cargo install gitwatch --locked --all-features      # CLI + TUI + desktop
 ```
 
-Prebuilt archives are available on [GitHub Releases](https://github.com/0x676e67/gitwatch/releases). The latest release is v0.1.0; the documentation describes `main`, including features that have not been released yet. See [installation](https://gitwatch.dpdns.org/en/install.html) for source builds and Linux desktop dependencies.
+Prebuilt archives are available on [GitHub Releases](https://github.com/0x676e67/gitwatch/releases). See [installation](https://gitwatch.dpdns.org/en/install.html) for source builds and Linux desktop dependencies.
 
 ## Quick start
 
