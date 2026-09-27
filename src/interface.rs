@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
     sync::mpsc::{self, Receiver, Sender},
     thread::{self, JoinHandle},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use anyhow::{Context, ensure};
@@ -15,7 +15,8 @@ use crate::{
     git::Lock,
     i18n::{Language, Text},
     paths,
-    pull::{PullOptions, PullTask},
+    preferences::Preferences,
+    pull::{PullOptions, PullStrategy, PullTask},
     watch::{self, Event, MonitorOptions, Repository, StopToken, WatchOptions},
     workspace::{BackupStore, HistoryEntry, RemoteWorkspace, RestorePlan, Workspace},
 };
@@ -40,6 +41,8 @@ pub(crate) struct Draft {
     pub remote: String,
     pub url: String,
     pub interval: String,
+    #[serde(default)]
+    pub pull_strategy: PullStrategy,
     pub delay: String,
 }
 
@@ -108,7 +111,7 @@ pub(crate) struct Model {
 struct Worker {
     store: BackupStore,
     sender: Sender<Message>,
-    active: HashMap<Uuid, (StopToken, JoinHandle<()>)>,
+    active: HashMap<Uuid, (StopToken, JoinHandle<Result<()>>)>,
     states: HashMap<Uuid, Text>,
 }
 
@@ -118,6 +121,26 @@ impl Kind {
             Self::Workspace => "Workspace backup",
             Self::Watch => "Git watch",
             Self::Pull => "Scheduled pull",
+        })
+    }
+}
+
+// ===== impl PullStrategy =====
+
+impl PullStrategy {
+    pub(crate) fn label(self, language: Language) -> &'static str {
+        language.text(match self {
+            Self::FastForwardOnly => "Fast-forward only",
+            Self::Merge => "Merge",
+            Self::Rebase => "Rebase",
+        })
+    }
+
+    pub(crate) fn description(self, language: Language) -> &'static str {
+        language.text(match self {
+            Self::FastForwardOnly => "Stops this update if local and remote histories have diverged.",
+            Self::Merge => "Fast-forwards when possible; otherwise creates a merge commit.",
+            Self::Rebase => "Replays local commits on remote history and changes their IDs. Use for unpublished commits.",
         })
     }
 }
@@ -137,6 +160,7 @@ impl Default for Draft {
             remote: "origin".into(),
             url: String::new(),
             interval: "3600".into(),
+            pull_strategy: PullStrategy::default(),
             delay: "2".into(),
         }
     }
@@ -174,7 +198,9 @@ impl Draft {
     }
 
     fn pull_options(&self) -> Result<PullOptions> {
-        let mut options = PullOptions::new(&self.path).interval(seconds(&self.interval)?);
+        let mut options = PullOptions::new(&self.path)
+            .interval(seconds(&self.interval)?)
+            .strategy(self.pull_strategy);
         if !self.remote.trim().is_empty() {
             options = options.remote(self.remote.trim());
         }
@@ -208,8 +234,11 @@ impl Model {
                     Some(path) => path,
                     None => BackupStore::default_directory()?,
                 };
+                let store = BackupStore::open(directory)?;
+                let _lock = Lock::acquire(&store.directory().join("interface.lock"))
+                    .context("Another task interface is using this data directory")?;
                 let mut worker = Worker {
-                    store: BackupStore::open(directory)?,
+                    store,
                     sender: messages.clone(),
                     active: HashMap::new(),
                     states: HashMap::new(),
@@ -218,9 +247,9 @@ impl Model {
                 messages.send(Message::StartInTray(
                     crate::preferences::Preferences::load(worker.store.directory())?.start_in_tray,
                 ))?;
-                worker.refresh()?;
+                worker.resume()?;
                 let _ = messages.send(Message::Done(Ok(
-                    "Ready. Tasks start only when requested.".into()
+                    "Ready. Previously started tasks resume automatically.".into(),
                 )));
                 while !worker_stop.is_stopped() {
                     worker.reap();
@@ -358,6 +387,30 @@ impl Drop for Model {
 // ===== impl Worker =====
 
 impl Worker {
+    fn remember(&self, id: Uuid, started: bool) -> Result<()> {
+        Preferences::update(self.store.directory(), |preferences| {
+            if started {
+                preferences.started_tasks.insert(id);
+            } else {
+                preferences.started_tasks.remove(&id);
+                preferences.pull_deadlines.remove(&id);
+            }
+        })
+        .context("Cannot save task startup state")
+    }
+
+    fn resume(&mut self) -> Result<()> {
+        for id in Preferences::load(self.store.directory())?.started_tasks {
+            if let Err(error) = self.command(Command::Start(id)) {
+                let _ = self
+                    .sender
+                    .send(Message::Status(id, Text::Error(format!("{error:#}"))));
+                self.remember(id, false)?;
+            }
+        }
+        self.refresh()
+    }
+
     fn tasks(&self) -> Result<Vec<Draft>> {
         let path = self.store.directory().join("tasks.json");
         if !path.try_exists()? {
@@ -421,6 +474,11 @@ impl Worker {
                 let _ = handle.join();
             }
             self.states.insert(id, "Stopped; see activity".into());
+            if let Err(error) = self.remember(id, false) {
+                let _ = self
+                    .sender
+                    .send(Message::Status(id, Text::Error(format!("{error:#}"))));
+            }
         }
         let _ = self.refresh();
     }
@@ -500,6 +558,7 @@ impl Worker {
                     !self.active.contains_key(&id),
                     "Stop the task before removing it"
                 );
+                self.remember(id, false)?;
                 if self.find(id)?.kind == Kind::Workspace {
                     self.store.remove(id)?;
                 } else {
@@ -525,6 +584,24 @@ impl Worker {
                         .context("Unknown workspace")?;
                     self.store.update(workspace.edit().paused(false).build()?)?;
                 }
+                let resume_at = if draft.kind == Kind::Pull {
+                    Preferences::load(self.store.directory())?
+                        .pull_deadlines
+                        .get(&id)
+                        .map(|deadline| {
+                            Instant::now()
+                                .checked_add(
+                                    deadline
+                                        .duration_since(SystemTime::now())
+                                        .unwrap_or_default(),
+                                )
+                                .context("Pull deadline exceeds the platform clock range")
+                        })
+                        .transpose()?
+                } else {
+                    None
+                };
+                self.remember(id, true)?;
                 let store = self.store.clone();
                 let sender = self.sender.clone();
                 let stop = StopToken::default();
@@ -550,6 +627,7 @@ impl Worker {
                             ),
                             Kind::Pull => PullTask::new(draft.pull_options()?)?.run_scheduled(
                                 token,
+                                resume_at,
                                 |result| {
                                     let text = result
                                         .map(|r| {
@@ -570,20 +648,34 @@ impl Worker {
                                     let _ = sender.send(Message::Status(id, text));
                                 },
                                 |next| {
+                                    if next.is_none() || next != resume_at {
+                                        let deadline = next.map(|next| SystemTime::now().checked_add(next.saturating_duration_since(Instant::now()))
+                                            .context("Pull deadline exceeds the platform clock range")).transpose()?;
+                                        Preferences::update(store.directory(), |preferences| {
+                                            if let Some(deadline) = deadline.filter(|_| preferences.started_tasks.contains(&id)) {
+                                                preferences.pull_deadlines.insert(id, deadline);
+                                            } else {
+                                                preferences.pull_deadlines.remove(&id);
+                                            }
+                                        }).context("Cannot save pull deadline")?;
+                                    }
                                     let _ = sender.send(Message::Schedule(id, next));
+                                    Ok(())
                                 },
                             ),
                         }
                     })();
-                    if let Err(error) = result {
-                        let _ = sender.send(Message::Status(id, Text::Error(error.to_string())));
+                    if let Err(error) = &result {
+                        let _ = sender.send(Message::Status(id, Text::Error(format!("{error:#}"))));
                     }
+                    result
                 });
                 self.active.insert(id, (stop, handle));
                 self.states.remove(&id);
                 self.refresh()?;
             }
             Command::Stop(id) => {
+                self.remember(id, false)?;
                 if let Some((stop, handle)) = self.active.remove(&id) {
                     stop.stop();
                     let _ = handle.join();
@@ -696,11 +788,23 @@ impl Worker {
 
 impl Drop for Worker {
     fn drop(&mut self) {
+        // Preserve startup intent on exit, but do not restart completed failures.
+        self.reap();
         for (stop, _) in self.active.values() {
             stop.stop();
         }
-        for (_, (_, handle)) in self.active.drain() {
-            let _ = handle.join();
+        for (id, (_, handle)) in self.active.drain() {
+            if !matches!(handle.join(), Ok(Ok(()))) {
+                let result = Preferences::update(self.store.directory(), |preferences| {
+                    preferences.started_tasks.remove(&id);
+                    preferences.pull_deadlines.remove(&id);
+                });
+                if let Err(error) = result {
+                    let _ = self
+                        .sender
+                        .send(Message::Status(id, Text::Error(format!("{error:#}"))));
+                }
+            }
         }
     }
 }
@@ -809,6 +913,129 @@ mod tests {
     }
 
     #[test]
+    fn started_tasks_resume_but_manual_stops_and_fatal_errors_persist() {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path().join("data");
+        let source = temp.path().join("source");
+        fs::create_dir(&source).unwrap();
+        let output = crate::git::base_command()
+            .args(["init", "-b", "main"])
+            .arg(&source)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        fs::write(source.join("notes.md"), "notes").unwrap();
+        let mut model = Model::new(Some(data.clone()));
+        wait(&mut model);
+        let mut ids = Vec::new();
+        for kind in [Kind::Workspace, Kind::Watch, Kind::Pull] {
+            command(
+                &mut model,
+                Command::Save(Draft {
+                    kind,
+                    name: kind.label(Language::English).into(),
+                    path: if kind == Kind::Pull {
+                        temp.path().join("missing")
+                    } else {
+                        source.clone()
+                    }
+                    .to_string_lossy()
+                    .into_owned(),
+                    includes: "notes.md".into(),
+                    remote: String::new(),
+                    ..Draft::default()
+                }),
+            );
+            ids.push(
+                model
+                    .rows
+                    .iter()
+                    .find(|row| row.draft.kind == kind)
+                    .unwrap()
+                    .draft
+                    .id
+                    .unwrap(),
+            );
+        }
+        command(&mut model, Command::Once(ids[0]));
+        assert!(Preferences::load(&data).unwrap().started_tasks.is_empty());
+        for &id in &ids {
+            command(&mut model, Command::Start(id));
+        }
+        assert!(model.rows.iter().all(|row| row.running));
+        drop(model);
+        assert_eq!(Preferences::load(&data).unwrap().started_tasks.len(), 3);
+        let mut model = Model::new(Some(data.clone()));
+        wait(&mut model);
+        assert!(model.error.is_none(), "{:?}", model.error);
+        assert!(model.rows.iter().all(|row| row.running));
+        for &id in &ids[..2] {
+            command(&mut model, Command::Stop(id));
+        }
+        drop(model);
+        let mut model = Model::new(Some(data.clone()));
+        wait(&mut model);
+        assert_eq!(model.rows.iter().filter(|row| row.running).count(), 1);
+        assert!(
+            model
+                .rows
+                .iter()
+                .find(|row| row.draft.id == Some(ids[2]))
+                .unwrap()
+                .running
+        );
+        command(&mut model, Command::Stop(ids[2]));
+        let mut draft = model
+            .rows
+            .iter()
+            .find(|row| row.draft.id == Some(ids[2]))
+            .unwrap()
+            .draft
+            .clone();
+        draft.path = source.to_string_lossy().into_owned();
+        command(&mut model, Command::Save(draft));
+        fs::write(source.join(".git/MERGE_HEAD"), "unfinished merge").unwrap();
+        command(&mut model, Command::Start(ids[2]));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while model.rows.iter().any(|row| row.running) && Instant::now() < deadline {
+            model.poll();
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(model.rows.iter().all(|row| !row.running));
+        assert!(Preferences::load(&data).unwrap().started_tasks.is_empty());
+        assert!(source.join(".git/MERGE_HEAD").exists());
+        drop(model);
+        fs::remove_file(source.join(".git/MERGE_HEAD")).unwrap();
+        let stale = Uuid::new_v4();
+        Preferences::update(&data, |preferences| {
+            preferences.started_tasks.insert(stale);
+        })
+        .unwrap();
+        let mut model = Model::new(Some(data.clone()));
+        wait(&mut model);
+        assert!(model.rows.iter().all(|row| !row.running));
+        assert!(Preferences::load(&data).unwrap().started_tasks.is_empty());
+        let mut other = Model::new(Some(data.clone()));
+        wait(&mut other);
+        assert!(
+            other
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("Another task interface")
+        );
+        drop(other);
+        command(&mut model, Command::Start(ids[2]));
+        command(&mut model, Command::Stop(ids[2]));
+        command(&mut model, Command::Remove(ids[2]));
+        drop(model);
+        let mut model = Model::new(Some(data));
+        wait(&mut model);
+        assert_eq!(model.rows.len(), 2);
+        assert!(model.rows.iter().all(|row| !row.running));
+    }
+
+    #[test]
     fn language_settings_wait_for_storage_without_blocking_the_interface() {
         let temp = tempfile::TempDir::new().unwrap();
         let data = temp.path().join("data");
@@ -833,7 +1060,8 @@ mod tests {
     #[test]
     fn refreshing_preserves_pull_deadlines_and_stopping_clears_them() {
         let temp = tempfile::tempdir().unwrap();
-        let mut model = Model::new(Some(temp.path().join("data")));
+        let data = temp.path().join("data");
+        let mut model = Model::new(Some(data.clone()));
         wait(&mut model);
         command(
             &mut model,
@@ -854,10 +1082,58 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
         let next = model.pull_schedule[&id].unwrap();
+        let saved = Preferences::load(&data).unwrap().pull_deadlines[&id];
         command(&mut model, Command::Refresh);
         assert_eq!(model.pull_schedule[&id], Some(next));
+        drop(model);
+        // Simulate reopening halfway through the interval without waiting five minutes.
+        let remaining = SystemTime::now() + Duration::from_secs(300);
+        Preferences::update(&data, |preferences| {
+            preferences.pull_deadlines.insert(id, remaining);
+        })
+        .unwrap();
+        let mut model = Model::new(Some(data.clone()));
+        wait(&mut model);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while model.pull_schedule.get(&id).copied().flatten().is_none() && Instant::now() < deadline
+        {
+            model.poll();
+            thread::sleep(Duration::from_millis(10));
+        }
+        let left = model.pull_schedule[&id]
+            .unwrap()
+            .saturating_duration_since(Instant::now());
+        assert!(left > Duration::from_secs(290) && left <= Duration::from_secs(300));
+        assert_eq!(
+            Preferences::load(&data).unwrap().pull_deadlines[&id],
+            remaining
+        );
+        assert!(remaining < saved);
+        drop(model);
+        Preferences::update(&data, |preferences| {
+            preferences
+                .pull_deadlines
+                .insert(id, SystemTime::UNIX_EPOCH);
+        })
+        .unwrap();
+        let mut model = Model::new(Some(data.clone()));
+        wait(&mut model);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while model.pull_schedule.get(&id).copied().flatten().is_none() && Instant::now() < deadline
+        {
+            model.poll();
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(model.pull_schedule[&id].unwrap() > Instant::now() + Duration::from_secs(590));
+        assert!(Preferences::load(&data).unwrap().pull_deadlines[&id] > SystemTime::now());
         command(&mut model, Command::Stop(id));
         assert!(!model.pull_schedule.contains_key(&id));
+        assert!(
+            !Preferences::load(&data)
+                .unwrap()
+                .pull_deadlines
+                .contains_key(&id)
+        );
     }
 
     #[test]
@@ -922,6 +1198,7 @@ mod tests {
             Command::Save(Draft {
                 kind: Kind::Pull,
                 name: "Upstream".into(),
+                pull_strategy: PullStrategy::Rebase,
                 path: temp.path().join("clone").to_string_lossy().into_owned(),
                 url: "https://example.invalid/repo.git".into(),
                 ..Draft::default()
@@ -932,6 +1209,22 @@ mod tests {
         wait(&mut model);
         assert_eq!(model.rows.len(), 2);
         assert!(model.rows.iter().all(|r| !r.running));
+        assert_eq!(
+            model
+                .rows
+                .iter()
+                .find(|r| r.draft.kind == Kind::Pull)
+                .unwrap()
+                .draft
+                .pull_strategy,
+            PullStrategy::Rebase
+        );
+        let mut old = serde_json::to_value(Draft::default()).unwrap();
+        old.as_object_mut().unwrap().remove("pull_strategy");
+        assert_eq!(
+            serde_json::from_value::<Draft>(old).unwrap().pull_strategy,
+            PullStrategy::FastForwardOnly
+        );
         command(&mut model, Command::Remove(id));
         assert_eq!(model.rows.len(), 1);
     }

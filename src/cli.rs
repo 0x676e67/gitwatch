@@ -94,7 +94,7 @@ enum Action {
         #[command(subcommand)]
         command: SelfAction,
     },
-    /// Clone or periodically fast-forward a local repository.
+    /// Clone or periodically update a local repository.
     Pull {
         path: PathBuf,
         #[arg(long)]
@@ -105,6 +105,14 @@ enum Action {
         branch: Option<String>,
         #[arg(long, default_value_t = 3600.0)]
         every: f64,
+        /// How to integrate remote history: ff-only, merge or rebase.
+        #[arg(
+            long,
+            value_enum,
+            default_value = "ff-only",
+            hide_possible_values = true
+        )]
+        strategy: gitwatch::pull::PullStrategy,
         #[arg(long)]
         once: bool,
     },
@@ -323,10 +331,12 @@ fn run_localized(args: Vec<std::ffi::OsString>, language: Language) -> Result<()
             remote,
             branch,
             every,
+            strategy,
             once,
         }) => {
             let mut options = gitwatch::pull::PullOptions::new(path)
                 .remote(remote)
+                .strategy(strategy)
                 .interval(duration(every)?);
             if let Some(url) = url {
                 options = options.url(url);

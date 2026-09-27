@@ -41,6 +41,14 @@ fn help_and_invalid_inputs_have_predictable_exit_codes() {
             .success()
     );
     assert!(!cli(&["-C"]).status.success());
+    assert_eq!(
+        cli(&["pull", ".", "--strategy", "squash", "--once"])
+            .status
+            .code(),
+        Some(2)
+    );
+    let help = cli(&["--lang", "zh-CN", "pull", "--help"]);
+    assert!(String::from_utf8_lossy(&help.stdout).contains("拉取策略"));
 }
 
 #[test]
