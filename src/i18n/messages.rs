@@ -769,8 +769,40 @@ pub(super) const TEXT: &[(&str, &str)] = &[
         "分支已存在，请使用导入操作",
     ),
     (
-        "Changing a registered branch requires an explicit migration",
-        "更换已注册的分支需要显式迁移",
+        "A task with this name already exists in this workspace",
+        "此工作空间中已有同名任务（不区分大小写）",
+    ),
+    (
+        "Backup branch conflicts with an existing branch name",
+        "备份分支与已有分支名称冲突",
+    ),
+    (
+        "Migrate the backup history to this branch, including on the configured remote.",
+        "迁移备份历史到此分支，包括已配置的远端分支。",
+    ),
+    (
+        "Invalid backup branch; use a Git-compatible task name or set a branch explicitly",
+        "备份分支名无效；请使用符合 Git 规则的任务名，或指定分支",
+    ),
+    (
+        "Backup branches cannot differ only by letter case",
+        "分支不能仅修改大小写；请先改为另一名称，再改为目标名称",
+    ),
+    (
+        "Remote branch already exists; fetch and import it before renaming",
+        "远端分支已存在，请先获取并导入，再重命名",
+    ),
+    (
+        "Remote branch already exists; choose another task name",
+        "远端已有同名分支，请使用其他任务名",
+    ),
+    (
+        "Remote history changed; fetch and reconcile it before renaming",
+        "远端历史已变化，请先获取并解决分歧，再重命名",
+    ),
+    (
+        "Could not rename remote branch; check connectivity, branch protection and the repository default branch",
+        "无法重命名远端分支；请检查网络、分支保护以及仓库默认分支设置",
     ),
     ("Missing parent commit", "缺少父提交"),
     ("Configure a backup remote first", "请先配置备份远端"),
@@ -1066,10 +1098,6 @@ pub(super) const TEXT: &[(&str, &str)] = &[
 
 // Existing core errors carry English text. Only known application templates are translated.
 pub(super) const ERRORS: &[(&str, &str)] = &[
-    (
-        "No backup exists yet; run this backup task once before uploading",
-        "尚未生成备份；请先对该备份任务执行一次，再上传",
-    ),
     ("Symbolic link cycle: {}", "符号链接存在循环：{0}"),
     (
         "Selection exceeds 128 directory levels",

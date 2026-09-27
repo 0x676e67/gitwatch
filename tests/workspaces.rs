@@ -64,6 +64,199 @@ fn workspace(root: &Path, name: &str) -> Workspace {
 }
 
 #[test]
+fn named_branches_rename_history_and_reject_conflicting_tasks() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("source");
+    project(&root, "original");
+    let store = BackupStore::open(temp.path().join("store")).unwrap();
+    let task = Workspace::builder("quic", &root)
+        .include("AGENTS.md")
+        .build()
+        .unwrap();
+    assert_eq!(task.branch(), "quic");
+    store.register(task.clone()).unwrap();
+    let duplicate = Workspace::builder(" QuIc ", &root)
+        .branch("different")
+        .include("AGENTS.md")
+        .build()
+        .unwrap();
+    assert!(
+        store
+            .register(duplicate)
+            .unwrap_err()
+            .to_string()
+            .contains("name already exists")
+    );
+    assert!(
+        store
+            .register(
+                Workspace::builder("quic", &root)
+                    .branch("other")
+                    .include("AGENTS.md")
+                    .build()
+                    .unwrap()
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("name already exists")
+    );
+    let remote = temp.path().join("remote.git");
+    git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+    store
+        .set_remote(Some(remote.to_str().unwrap()), true)
+        .unwrap();
+    store.push(task.id()).unwrap();
+    let first = store
+        .status(task.id())
+        .unwrap()
+        .unwrap()
+        .commit()
+        .to_owned();
+    let config = fs::read(store.directory().join("config.json")).unwrap();
+    let renamed = task.edit().name("Quic notes").build().unwrap();
+    assert_eq!(renamed.branch(), "Quic-notes");
+    git(&remote, &["config", "receive.denyDeletes", "true"]);
+    assert!(store.update(renamed.clone()).is_err());
+    assert_eq!(store.workspaces().unwrap()[0].name(), "quic");
+    assert_eq!(git(&remote, &["rev-parse", "quic"]), first);
+    assert_eq!(
+        git(
+            &remote,
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/heads/Quic-notes"
+            ]
+        ),
+        ""
+    );
+    git(&remote, &["config", "receive.denyDeletes", "false"]);
+    store.update(renamed.clone()).unwrap();
+    let latest = store
+        .status(task.id())
+        .unwrap()
+        .unwrap()
+        .commit()
+        .to_owned();
+    assert_eq!(
+        git(&remote, &["show", "Quic-notes:files/AGENTS.md"]),
+        "original"
+    );
+    assert_eq!(git(&remote, &["rev-parse", "Quic-notes^"]), first);
+    let manifest: serde_json::Value =
+        serde_json::from_str(&git(&remote, &["show", "Quic-notes:manifest.json"])).unwrap();
+    assert_eq!(manifest["name"], "Quic notes");
+    assert_eq!(
+        git(
+            &remote,
+            &["for-each-ref", "--format=%(refname)", "refs/heads/quic"]
+        ),
+        ""
+    );
+    // Simulate interruption after the remote accepted the rename but before config was saved.
+    fs::write(store.directory().join("config.json"), &config).unwrap();
+    git(
+        store.repository(),
+        &["update-ref", "refs/heads/quic", &first],
+    );
+    store.update(renamed.clone()).unwrap();
+    assert_eq!(store.status(task.id()).unwrap().unwrap().commit(), latest);
+    assert_eq!(store.workspaces().unwrap()[0].id(), task.id());
+    // An unrelated destination, even with identical contents, must never be overwritten.
+    git(&remote, &["update-ref", "refs/heads/taken", &first]);
+    let failed = renamed.edit().name("taken").build().unwrap();
+    assert!(
+        store
+            .update(failed)
+            .unwrap_err()
+            .to_string()
+            .contains("already exists")
+    );
+    assert_eq!(store.workspaces().unwrap()[0].name(), "Quic notes");
+    assert_eq!(git(&remote, &["rev-parse", "taken"]), first);
+    assert_eq!(
+        git(
+            store.repository(),
+            &["for-each-ref", "--format=%(refname)", "refs/heads/taken"]
+        ),
+        ""
+    );
+    // A failed rename must not block backing up or choosing another name.
+    fs::write(root.join("AGENTS.md"), "new contents").unwrap();
+    store.backup(task.id()).unwrap();
+    let final_task = renamed.edit().name("final").build().unwrap();
+    store.update(final_task).unwrap();
+    assert_eq!(
+        git(&remote, &["show", "final:files/AGENTS.md"]),
+        "new contents"
+    );
+    // Existing UUID branch bindings remain usable and can be explicitly migrated.
+    let legacy = Workspace::builder("legacy", &root)
+        .branch("workspaces/old-id")
+        .include("AGENTS.md")
+        .build()
+        .unwrap();
+    store.register(legacy.clone()).unwrap();
+    store.push(legacy.id()).unwrap();
+    store
+        .update(legacy.edit().branch("legacy").build().unwrap())
+        .unwrap();
+    assert_eq!(
+        git(&remote, &["show", "legacy:files/AGENTS.md"]),
+        "new contents"
+    );
+    // CLI/API backup creation shares the name namespace used by GUI pull/watch tasks.
+    fs::write(
+        store.directory().join("tasks.json"),
+        serde_json::to_vec(&serde_json::json!([{
+            "id": uuid::Uuid::new_v4(), "name": "Pull task"
+        }]))
+        .unwrap(),
+    )
+    .unwrap();
+    let collision = Workspace::builder("pull TASK", &root)
+        .include("AGENTS.md")
+        .build()
+        .unwrap();
+    assert!(
+        store
+            .register(collision)
+            .unwrap_err()
+            .to_string()
+            .contains("name already exists")
+    );
+}
+
+#[test]
+fn first_upload_failures_keep_local_snapshots_for_retry() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("source");
+    project(&root, "saved locally");
+    let store = BackupStore::open(temp.path().join("store")).unwrap();
+    let task = workspace(&root, "notes");
+    store.register(task.clone()).unwrap();
+    let remote = temp.path().join("missing.git");
+    store
+        .set_remote(Some(remote.to_str().unwrap()), true)
+        .unwrap();
+    fs::rename(&root, temp.path().join("offline-source")).unwrap();
+    assert!(store.push(task.id()).is_err());
+    assert!(store.status(task.id()).unwrap().is_none());
+    fs::rename(temp.path().join("offline-source"), &root).unwrap();
+    assert!(store.push(task.id()).is_err());
+    let report = store.status(task.id()).unwrap().unwrap();
+    assert_eq!(report.files(), 2);
+    assert!(matches!(report.upload(), UploadState::Failed { .. }));
+    git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+    store.push(task.id()).unwrap();
+    assert_eq!(git(&remote, &["rev-parse", "notes"]), report.commit());
+    assert!(matches!(
+        store.status(task.id()).unwrap().unwrap().upload(),
+        UploadState::Synced
+    ));
+}
+
+#[test]
 fn switching_remotes_invalidates_previously_fetched_workspace_branches() {
     let temp = TempDir::new().unwrap();
     let root = temp.path().join("source");
@@ -76,16 +269,17 @@ fn switching_remotes_invalidates_previously_fetched_workspace_branches() {
     producer
         .set_remote(Some(remote.to_str().unwrap()), false)
         .unwrap();
-    assert!(
-        producer
-            .push(workspace.id())
-            .unwrap_err()
-            .to_string()
-            .contains("No backup exists yet")
-    );
     assert!(producer.status(workspace.id()).unwrap().is_none());
-    producer.backup(workspace.id()).unwrap();
     producer.push(workspace.id()).unwrap();
+    let first = producer.status(workspace.id()).unwrap().unwrap();
+    assert_eq!(first.files(), 2);
+    fs::rename(&root, temp.path().join("offline-source")).unwrap();
+    producer.push(workspace.id()).unwrap();
+    assert_eq!(
+        producer.status(workspace.id()).unwrap().unwrap().commit(),
+        first.commit()
+    );
+    fs::rename(temp.path().join("offline-source"), &root).unwrap();
     assert!(matches!(
         producer.status(workspace.id()).unwrap().unwrap().upload(),
         UploadState::Synced

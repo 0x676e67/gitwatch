@@ -580,6 +580,7 @@ impl Worker {
                 self.refresh()?;
             }
             Command::Save(mut draft) => {
+                draft.name = draft.name.trim().to_owned();
                 ensure!(!draft.name.trim().is_empty(), "Enter a task name");
                 ensure!(!draft.path.trim().is_empty(), "Enter a local path");
                 if let Some(id) = draft.id {
@@ -599,6 +600,9 @@ impl Worker {
                         .workspaces()?
                         .into_iter()
                         .find(|w| Some(w.id()) == draft.id);
+                    let branch_changed = existing
+                        .as_ref()
+                        .is_none_or(|w| draft.branch.trim() != w.branch());
                     let builder = match existing {
                         Some(workspace) => workspace.edit(),
                         None => Workspace::builder(&draft.name, &draft.path),
@@ -609,7 +613,7 @@ impl Worker {
                         .includes(lines(&draft.includes))
                         .excludes(lines(&draft.excludes))
                         .follow_links(draft.follow_links);
-                    if !draft.branch.trim().is_empty() {
+                    if branch_changed && !draft.branch.trim().is_empty() {
                         builder = builder.branch(draft.branch.trim());
                     }
                     let workspace = builder.paused(true).build()?;
@@ -634,6 +638,7 @@ impl Worker {
                     let _lock = Lock::acquire(&self.store.directory().join("tasks.lock"))?;
                     let mut tasks = self.tasks()?;
                     let id = *draft.id.get_or_insert_with(Uuid::new_v4);
+                    self.store.check_task_name(id, &draft.name)?;
                     if let Some(existing) = tasks.iter_mut().find(|task| task.id == Some(id)) {
                         *existing = draft;
                     } else {
@@ -1030,6 +1035,63 @@ mod tests {
         model.send(command);
         wait(model);
         assert!(model.error.is_none(), "{:?}", model.error);
+    }
+
+    #[test]
+    fn task_names_are_unique_across_kinds_and_edits() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        fs::create_dir(&source).unwrap();
+        git(&source, &["init", "-b", "main"]);
+        fs::write(source.join("notes.md"), "notes").unwrap();
+        let mut model = Model::new(Some(temp.path().join("data")));
+        wait(&mut model);
+        for (kind, name) in [
+            (Kind::Workspace, "Notes"),
+            (Kind::Watch, "Watch"),
+            (Kind::Pull, "Pull"),
+        ] {
+            command(
+                &mut model,
+                Command::Save(Draft {
+                    kind,
+                    name: name.into(),
+                    path: source.to_string_lossy().into_owned(),
+                    includes: "notes.md".into(),
+                    remote: "origin".into(),
+                    ..Draft::default()
+                }),
+            );
+        }
+        let drafts: Vec<_> = model.rows.iter().map(|row| row.draft.clone()).collect();
+        for (index, draft) in drafts.iter().enumerate() {
+            let mut conflicting = draft.clone();
+            conflicting.name = format!(
+                " {} ",
+                drafts[(index + 1) % drafts.len()].name.to_lowercase()
+            );
+            model.send(Command::Save(conflicting.clone()));
+            wait(&mut model);
+            assert!(
+                model
+                    .error
+                    .as_ref()
+                    .unwrap()
+                    .contains("name already exists")
+            );
+            conflicting.id = None;
+            model.send(Command::Save(conflicting));
+            wait(&mut model);
+            assert!(
+                model
+                    .error
+                    .as_ref()
+                    .unwrap()
+                    .contains("name already exists")
+            );
+            command(&mut model, Command::Save(draft.clone()));
+        }
+        assert_eq!(model.rows.len(), 3);
     }
 
     #[test]

@@ -121,9 +121,12 @@ impl BackupStore {
 
     /// Registers a new workspace without copying or uploading project files.
     pub fn register(&self, workspace: Workspace) -> Result<()> {
+        let _tasks = Lock::acquire(&self.data.join("tasks.lock"))?;
         let _lock = self.lock()?;
         self.validate(&workspace)?;
         let mut config = self.config()?;
+        self.ensure_unique_name(&config, workspace.id, &workspace.name)?;
+        self.check_branch(&config, &workspace)?;
         ensure!(
             !config
                 .workspaces
@@ -139,22 +142,54 @@ impl BackupStore {
         self.save_config(&config)
     }
 
-    /// Updates a local binding or selection while preserving its branch identity.
+    /// Updates a binding, migrating local and remote history when its branch changes.
+    /// A conflicting or unavailable remote leaves the binding unchanged.
     pub fn update(&self, workspace: Workspace) -> Result<()> {
+        let _tasks = Lock::acquire(&self.data.join("tasks.lock"))?;
         let _lock = self.lock()?;
         self.validate(&workspace)?;
         let mut config = self.config()?;
+        self.ensure_unique_name(&config, workspace.id, &workspace.name)?;
+        self.check_branch(&config, &workspace)?;
+        ensure!(
+            !config
+                .workspaces
+                .iter()
+                .any(|w| w.id != workspace.id && w.branch.eq_ignore_ascii_case(&workspace.branch)),
+            "Workspace identity or branch is already registered"
+        );
         let existing = config
             .workspaces
-            .iter_mut()
-            .find(|w| w.id == workspace.id)
+            .iter()
+            .position(|w| w.id == workspace.id)
             .context("Unknown workspace")?;
-        ensure!(
-            existing.branch == workspace.branch,
-            "Changing a registered branch requires an explicit migration"
-        );
-        *existing = workspace;
-        self.save_config(&config)
+        let old = &config.workspaces[existing];
+        let renamed = old.branch != workspace.branch;
+        let old_reference = old.reference();
+        let old_commit = self.git.reference(&old_reference)?;
+        let report = if renamed {
+            self.rename_branch(old, &workspace, config.remote.is_some())?
+        } else {
+            None
+        };
+        config.workspaces[existing] = workspace;
+        self.save_config(&config)?;
+        if let Some(report) = report {
+            self.save_report(&report)?;
+        }
+        if renamed && let Some(commit) = old_commit {
+            self.git
+                .run(["update-ref", "--no-deref", "-d", &old_reference, &commit])?;
+        }
+        if renamed {
+            self.git.run([
+                "update-ref",
+                "--no-deref",
+                "-d",
+                &format!("refs/gitwatch/renames/{}", config.workspaces[existing].id),
+            ])?;
+        }
+        Ok(())
     }
 
     /// Removes a local binding. Its branch and history remain available.
@@ -237,6 +272,25 @@ impl BackupStore {
         let _lock = self.lock()?;
         let config = self.config()?;
         let workspace = self.workspace(&config, id)?;
+        let mut report = self.snapshot(workspace)?;
+        report.upload = if config.auto_push {
+            match self.push_locked(workspace) {
+                Ok(()) => UploadState::Synced,
+                Err(error) => UploadState::Failed {
+                    message: error.to_string(),
+                },
+            }
+        } else if config.remote.is_some() {
+            UploadState::Pending
+        } else {
+            UploadState::Disabled
+        };
+        self.save_report(&report)?;
+        Ok(report)
+    }
+
+    fn snapshot(&self, workspace: &Workspace) -> Result<BackupReport> {
+        let id = workspace.id;
         self.validate(workspace)?;
         let collected = scan::collect(workspace, &self.data)?;
         let reference = workspace.reference();
@@ -308,28 +362,14 @@ impl BackupStore {
             self.git.update_ref(&reference, &oid, parent.as_deref())?;
             oid
         };
-        let upload = if config.auto_push {
-            match self.push_locked(workspace) {
-                Ok(()) => UploadState::Synced,
-                Err(error) => UploadState::Failed {
-                    message: error.to_string(),
-                },
-            }
-        } else if config.remote.is_some() {
-            UploadState::Pending
-        } else {
-            UploadState::Disabled
-        };
-        let report = BackupReport {
+        Ok(BackupReport {
             workspace: id,
             commit,
             changed: !unchanged,
             files: blobs.len(),
             retained,
-            upload,
-        };
-        self.save_report(&report)?;
-        Ok(report)
+            upload: UploadState::Pending,
+        })
     }
 
     /// Returns the most recent local backup/upload report, if one exists.
@@ -344,23 +384,37 @@ impl BackupStore {
         }
     }
 
-    /// Pushes one branch without force, including when no new backup was created.
+    /// Pushes one branch without force, creating its first snapshot if necessary.
+    /// Existing snapshots can be uploaded without accessing the source directory.
     pub fn push(&self, id: Uuid) -> Result<()> {
         let _lock = self.lock()?;
         let config = self.config()?;
         ensure!(config.remote.is_some(), "Configure a backup remote first");
         let workspace = self.workspace(&config, id)?;
-        self.push_locked(workspace)?;
-        let commit = self.git.resolve(&workspace.reference())?;
-        let manifest = self.manifest(&commit, Some(id))?;
-        self.save_report(&BackupReport {
-            workspace: id,
-            files: self.blobs(&commit)?.len(),
-            commit,
-            changed: false,
-            retained: manifest.retained,
-            upload: UploadState::Synced,
-        })
+        let mut report = if self.git.reference(&workspace.reference())?.is_none() {
+            self.snapshot(workspace)?
+        } else {
+            let commit = self.git.resolve(&workspace.reference())?;
+            let manifest = self.manifest(&commit, Some(id))?;
+            BackupReport {
+                workspace: id,
+                files: self.blobs(&commit)?.len(),
+                commit,
+                changed: false,
+                retained: manifest.retained,
+                upload: UploadState::Pending,
+            }
+        };
+        self.save_report(&report)?;
+        let result = self.push_locked(workspace);
+        report.upload = match &result {
+            Ok(()) => UploadState::Synced,
+            Err(error) => UploadState::Failed {
+                message: error.to_string(),
+            },
+        };
+        self.save_report(&report)?;
+        result
     }
 
     /// Fetches remote branches without checking out files or merging local histories.
@@ -382,6 +436,7 @@ impl BackupStore {
 
     /// Binds a fetched branch to a project on this machine, without restoring files.
     pub fn import(&self, branch: &str, root: impl AsRef<Path>) -> Result<Workspace> {
+        let _tasks = Lock::acquire(&self.data.join("tasks.lock"))?;
         let _lock = self.lock()?;
         self.git.run(["check-ref-format", "--branch", branch])?;
         let commit = self.git.resolve(&format!("refs/remotes/origin/{branch}"))?;
@@ -398,6 +453,8 @@ impl BackupStore {
         };
         self.validate(&workspace)?;
         let mut config = self.config()?;
+        self.ensure_unique_name(&config, workspace.id, &workspace.name)?;
+        self.check_branch(&config, &workspace)?;
         ensure!(
             !config
                 .workspaces
@@ -491,6 +548,66 @@ impl BackupStore {
         )
     }
 
+    // Task writers acquire tasks.lock before store.lock so all task kinds share names.
+    #[cfg(any(feature = "desktop", feature = "tui"))]
+    pub(crate) fn check_task_name(&self, id: Uuid, name: &str) -> Result<()> {
+        let _lock = self.lock()?;
+        self.ensure_unique_name(&self.config()?, id, name)
+    }
+
+    fn ensure_unique_name(&self, config: &Config, id: Uuid, name: &str) -> Result<()> {
+        #[derive(serde::Deserialize)]
+        struct TaskName {
+            id: Uuid,
+            name: String,
+        }
+        let name = name.trim().to_lowercase();
+        ensure!(
+            !config
+                .workspaces
+                .iter()
+                .any(|w| w.id != id && w.name.trim().to_lowercase() == name),
+            "A task with this name already exists in this workspace"
+        );
+        let path = self.data.join("tasks.json");
+        if path.try_exists()? {
+            let tasks: Vec<TaskName> = serde_json::from_slice(&paths::read_file(&path)?)?;
+            ensure!(
+                !tasks
+                    .iter()
+                    .any(|task| task.id != id && task.name.trim().to_lowercase() == name),
+                "A task with this name already exists in this workspace"
+            );
+        }
+        Ok(())
+    }
+
+    fn check_branch(&self, config: &Config, workspace: &Workspace) -> Result<()> {
+        let branches =
+            self.git
+                .text(["for-each-ref", "--format=%(refname:strip=2)", "refs/heads/"])?;
+        let branch = workspace.branch.to_lowercase();
+        for other in config
+            .workspaces
+            .iter()
+            .filter(|w| w.id != workspace.id)
+            .map(|w| w.branch.as_str())
+            .chain(branches.lines())
+        {
+            if other == workspace.branch {
+                continue;
+            }
+            let other = other.to_lowercase();
+            ensure!(
+                other != branch
+                    && !other.starts_with(&format!("{branch}/"))
+                    && !branch.starts_with(&format!("{other}/")),
+                "Backup branch conflicts with an existing branch name"
+            );
+        }
+        Ok(())
+    }
+
     pub(crate) fn workspace<'a>(&self, config: &'a Config, id: Uuid) -> Result<&'a Workspace> {
         config
             .workspaces
@@ -507,7 +624,10 @@ impl BackupStore {
         );
         paths::disjoint(&paths::root(&workspace.root)?, &self.data)?;
         self.git
-            .run(["check-ref-format", "--branch", &workspace.branch])?;
+            .run(["check-ref-format", "--branch", &workspace.branch])
+            .context(
+                "Invalid backup branch; use a Git-compatible task name or set a branch explicitly",
+            )?;
         Ok(())
     }
 
@@ -555,7 +675,11 @@ impl BackupStore {
         Ok(files)
     }
 
-    fn write_tree(&self, files: &BTreeMap<String, Blob>, manifest: &str) -> Result<String> {
+    pub(super) fn write_tree(
+        &self,
+        files: &BTreeMap<String, Blob>,
+        manifest: &str,
+    ) -> Result<String> {
         let directory = tempfile::tempdir_in(&self.data)?;
         let index = directory.path().join("index");
         self.git
@@ -585,10 +709,6 @@ impl BackupStore {
 
     fn push_locked(&self, workspace: &Workspace) -> Result<()> {
         let reference = workspace.reference();
-        ensure!(
-            self.git.reference(&reference)?.is_some(),
-            "No backup exists yet; run this backup task once before uploading"
-        );
         self.git
             .run(["push", "origin", &format!("{reference}:{reference}")])?;
         Ok(())

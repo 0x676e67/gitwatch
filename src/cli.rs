@@ -175,6 +175,9 @@ enum WorkspaceAction {
         workspace: String,
         #[arg(long)]
         name: Option<String>,
+        /// Migrate the backup history to this branch, including on the configured remote.
+        #[arg(long)]
+        branch: Option<String>,
         #[arg(long)]
         root: Option<PathBuf>,
         #[arg(long = "include")]
@@ -664,6 +667,7 @@ fn workspace_command(
         WorkspaceAction::Edit {
             workspace,
             name,
+            branch,
             root,
             includes,
             excludes,
@@ -675,6 +679,9 @@ fn workspace_command(
             let mut builder = find(&store, &workspace)?.edit();
             if let Some(name) = name {
                 builder = builder.name(name);
+            }
+            if let Some(branch) = branch {
+                builder = builder.branch(branch);
             }
             if let Some(root) = root {
                 builder = builder.root(root);
