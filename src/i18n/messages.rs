@@ -51,8 +51,8 @@ pub(super) const TEXT: &[(&str, &str)] = &[
         "系统托盘不可用，关闭窗口将退出程序。",
     ),
     (
-        "Applies the next time you open gitwatch. Tasks still start manually.",
-        "下次启动 gitwatch 时生效，任务仍需手动启动。",
+        "Applies the next time you open gitwatch. Started tasks resume automatically.",
+        "下次启动 gitwatch 时生效，已启动的任务会自动恢复。",
     ),
     (
         "Closing the window keeps tasks running in the tray.",
@@ -275,6 +275,7 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     ),
     ("Cannot read language preferences", "无法读取语言设置"),
     ("Tasks", "任务"),
+    ("Drag to reorder", "拖动调整顺序"),
     ("Activity", "活动记录"),
     ("History", "历史记录"),
     ("Running", "运行中"),
@@ -295,7 +296,7 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     ("Git watch", "Git 监听"),
     ("Scheduled pull", "定时拉取"),
     ("Backup settings", "备份设置"),
-    ("+ Add task", "+ 添加任务"),
+    ("Add task", "添加任务"),
     ("Keep a history of your work.", "为你的工作保留历史记录。"),
     ("Working in background…", "正在后台处理…"),
     ("Working…", "处理中…"),

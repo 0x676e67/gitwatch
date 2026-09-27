@@ -18,6 +18,7 @@ pub(crate) struct Preferences {
     pub start_in_tray: bool,
     pub started_tasks: BTreeSet<uuid::Uuid>,
     pub pull_deadlines: BTreeMap<uuid::Uuid, SystemTime>,
+    pub task_order: Vec<uuid::Uuid>,
 }
 
 impl Preferences {
@@ -61,6 +62,7 @@ mod tests {
         Preferences::update(temp.path(), |value| {
             value.started_tasks.insert(id);
             value.pull_deadlines.insert(id, deadline);
+            value.task_order.push(id);
         })
         .unwrap();
         Preferences::update(temp.path(), |value| value.start_in_tray = true).unwrap();
@@ -70,6 +72,7 @@ mod tests {
         assert_eq!(preferences.language, Some(Language::Chinese));
         assert!(preferences.started_tasks.contains(&id));
         assert_eq!(preferences.pull_deadlines.get(&id), Some(&deadline));
+        assert_eq!(preferences.task_order, [id]);
         Preferences::update(temp.path(), |value| value.start_in_tray = false).unwrap();
         assert_eq!(
             Preferences::load(temp.path()).unwrap().language,

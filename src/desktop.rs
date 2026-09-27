@@ -1,5 +1,6 @@
 //! Native desktop task management, history and explicit restore previews.
 
+mod icons;
 mod repository;
 mod theme;
 mod tray;
@@ -9,6 +10,7 @@ use std::{path::PathBuf, time::Duration};
 use eframe::egui::{self, Color32, RichText};
 use uuid::Uuid;
 
+use self::icons::Icon;
 use crate::{
     Result,
     i18n::Language,
@@ -174,17 +176,17 @@ impl Desktop {
                                 }
                             });
                     });
-                    if ui.button(language.text("Settings")).clicked() { self.desktop_settings = !self.desktop_settings; }
+                    if ui.add(Icon::Settings.button(language.text("Settings"))).clicked() { self.desktop_settings = !self.desktop_settings; }
                 });
             });
             ui.weak(language.text("Keep a history of your work."));
             if selected_language != language { self.model.set_language(selected_language); }
             ui.add_space(10.0);
             ui.horizontal_wrapped(|ui| {
-                    if ui.button(language.text("Backup settings")).clicked() { self.settings = !self.settings; self.draft = None; }
-                    if ui.button(language.text("+ Add task")).clicked() { self.draft = Some(Draft::default()); self.settings = false; }
-                    if ui.add_enabled(!self.model.busy, egui::Button::new(language.text("Refresh"))).clicked() { self.model.send(Command::Refresh); self.repository.refresh(); }
-                    if self.tray.is_some() && ui.button(language.text("Minimize to tray")).clicked() { tray::hide(ui.ctx()); }
+                    if ui.add(Icon::Backup.button(language.text("Backup settings"))).clicked() { self.settings = !self.settings; self.draft = None; }
+                    if ui.add(Icon::Add.button(language.text("Add task"))).clicked() { self.draft = Some(Draft::default()); self.settings = false; }
+                    if ui.add_enabled(!self.model.busy, Icon::Refresh.button(language.text("Refresh"))).clicked() { self.model.send(Command::Refresh); self.repository.refresh(); }
+                    if self.tray.is_some() && ui.add(Icon::Tray.button(language.text("Minimize to tray"))).clicked() { tray::hide(ui.ctx()); }
             });
             ui.add_space(8.0);
             ui.separator();
@@ -205,15 +207,28 @@ impl Desktop {
                     columns[0].label(language.text("Started tasks resume when you reopen the app."));
                     egui::ScrollArea::vertical().id_salt("tasks").max_height((columns[0].available_height() - 100.0).max(100.0)).show(&mut columns[0], |ui| {
                         if self.model.rows.is_empty() { ui.add_space(24.0); ui.label(language.text("Add a workspace backup, watch a Git repository, or schedule repository updates.")); }
-                        for row in &self.model.rows {
+                        let mut reorder = None;
+                        for (index, row) in self.model.rows.iter().enumerate() {
                             let id = row.draft.id;
-                            egui::Frame::new().fill(if self.selected == id { theme::SELECTED } else { theme::SURFACE })
+                            let card = ui.push_id(id, |ui| egui::Frame::new().fill(if self.selected == id { theme::SELECTED } else { theme::SURFACE })
                                 .stroke(egui::Stroke::new(1.0, if self.selected == id { theme::ACCENT } else { theme::BORDER }))
                                 .corner_radius(10).inner_margin(14).show(ui, |ui| {
                                 ui.set_min_width((ui.available_width() - 2.0).max(0.0));
+                                ui.horizontal(|ui| {
+                                    if let Some(id) = id {
+                                        ui.add_enabled_ui(!self.model.busy, |ui| {
+                                            let (_, rect) = ui.allocate_space(egui::vec2(20.0, 24.0));
+                                            let handle = ui.interact(rect, egui::Id::new(("task-drag", id)), egui::Sense::drag());
+                                            handle.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, ui.is_enabled(), language.text("Drag to reorder")));
+                                            Icon::Grip.paint(ui.painter(), egui::Rect::from_center_size(rect.center(), egui::vec2(16.0, 16.0)), if handle.dragged() { theme::ACCENT } else { theme::MUTED });
+                                            handle.dnd_set_drag_payload(id);
+                                            handle.on_hover_text(language.text("Drag to reorder"));
+                                        });
+                                    }
                                 if ui.selectable_label(self.selected == id, RichText::new(&row.draft.name).strong().size(18.0)).clicked() {
                                     self.selected = id; self.settings = false; self.draft = None; self.model.history.clear(); self.model.plan = None; self.model.text.clear(); self.history = 0; self.confirm = false; self.remove = false;
                                 }
+                                });
                                 ui.horizontal_wrapped(|ui| {
                                     ui.weak(row.draft.kind.label(language));
                                     ui.colored_label(if row.running { theme::ACCENT } else { theme::MUTED }, language.text(if row.running { "Running" } else { "Stopped" }));
@@ -224,8 +239,30 @@ impl Desktop {
                                     let next = id.and_then(|id| self.model.pull_schedule.get(&id)).copied().flatten();
                                     ui.small(pull_countdown(next, language));
                                 }
-                            });
+                            })).inner;
+                            if let Some(target) = id && !self.model.busy {
+                                let mut drop_rect = card.response.rect.expand2(egui::vec2(0.0, 3.0));
+                                if index + 1 == self.model.rows.len() { drop_rect.max.y = drop_rect.max.y.max(ui.clip_rect().bottom()); }
+                                let drop = ui.interact(drop_rect, egui::Id::new(("task-drop", target)), egui::Sense::hover());
+                                if let Some(source) = drop.dnd_hover_payload::<Uuid>() && *source != target {
+                                    let after = ui.input(|input| input.pointer.hover_pos().is_some_and(|pos| pos.y > card.response.rect.center().y));
+                                    let y = if after { card.response.rect.bottom() } else { card.response.rect.top() };
+                                    ui.painter().line_segment([egui::pos2(drop.rect.left(), y), egui::pos2(drop.rect.right(), y)], egui::Stroke::new(2.0, theme::ACCENT));
+                                    if drop.dnd_release_payload::<Uuid>().is_some() {
+                                        reorder = Some(Command::Reorder { id: *source, target, after });
+                                    }
+                                }
+                            }
                             ui.add_space(6.0);
+                        }
+                        if let Some(command) = reorder { self.model.send(command); }
+                        if egui::DragAndDrop::payload::<Uuid>(ui.ctx()).is_some() && ui.input(|input| input.pointer.primary_down()) {
+                            let clip = ui.clip_rect().intersect(ui.max_rect());
+                            if let Some(pos) = ui.input(|input| input.pointer.hover_pos()) && clip.contains(pos) {
+                                let direction = if pos.y < clip.top() + 32.0 { 1.0 } else if pos.y > clip.bottom() - 32.0 { -1.0 } else { 0.0 };
+                                let delta = direction * 360.0 * ui.input(|input| input.stable_dt.min(0.05));
+                                ui.scroll_with_delta_animation(egui::vec2(0.0, delta), egui::style::ScrollAnimation::none());
+                            }
                         }
                     });
                     if self.settings {
@@ -254,11 +291,9 @@ impl Desktop {
                         self.model.send(Command::StartInTray(enabled));
                     }
                 });
-                ui.label(
-                    language.text(
-                        "Applies the next time you open gitwatch. Tasks still start manually.",
-                    ),
-                );
+                ui.label(language.text(
+                    "Applies the next time you open gitwatch. Started tasks resume automatically.",
+                ));
                 ui.label(language.text("Closing the window keeps tasks running in the tray."));
                 ui.label(language.text(
                     "Click the tray icon to show the window. Choose Quit in its menu to exit.",
@@ -287,7 +322,10 @@ impl Desktop {
         ui.add_enabled_ui(!self.model.busy, |ui| {
             ui.horizontal_wrapped(|ui| {
                 if ui
-                    .button(language.text(if running { "Stop" } else { "Start" }))
+                    .add(
+                        (if running { Icon::Stop } else { Icon::Start })
+                            .button(language.text(if running { "Stop" } else { "Start" })),
+                    )
                     .clicked()
                 {
                     self.model.send(if running {
@@ -297,28 +335,34 @@ impl Desktop {
                     });
                 }
                 if ui
-                    .add_enabled(!running, egui::Button::new(language.text("Run once")))
+                    .add_enabled(!running, Icon::Once.button(language.text("Run once")))
                     .clicked()
                 {
                     self.model.send(Command::Once(id));
                 }
                 if ui
-                    .add_enabled(!running, egui::Button::new(language.text("Edit")))
+                    .add_enabled(!running, Icon::Edit.button(language.text("Edit")))
                     .clicked()
                 {
                     self.draft = Some(draft);
                 }
                 if ui
-                    .add_enabled(!running, egui::Button::new(language.text("Remove")))
+                    .add_enabled(!running, Icon::Remove.button(language.text("Remove")))
                     .clicked()
                 {
                     self.remove = true;
                 }
                 if kind == Kind::Workspace {
-                    if ui.button(language.text("History")).clicked() {
+                    if ui
+                        .add(Icon::History.button(language.text("History")))
+                        .clicked()
+                    {
                         self.model.send(Command::History(id));
                     }
-                    if ui.button(language.text("Upload")).clicked() {
+                    if ui
+                        .add(Icon::Upload.button(language.text("Upload")))
+                        .clicked()
+                    {
                         self.model.send(Command::Push(id));
                     }
                 }
@@ -328,11 +372,17 @@ impl Desktop {
                     language.text("Remove this local binding? Backup history will be retained."),
                 );
                 ui.horizontal(|ui| {
-                    if ui.button(language.text("Remove binding")).clicked() {
+                    if ui
+                        .add(Icon::Remove.button(language.text("Remove binding")))
+                        .clicked()
+                    {
                         self.model.send(Command::Remove(id));
                         self.remove = false;
                     }
-                    if ui.button(language.text("Cancel")).clicked() {
+                    if ui
+                        .add(Icon::Close.button(language.text("Cancel")))
+                        .clicked()
+                    {
                         self.remove = false;
                     }
                 });
@@ -365,10 +415,10 @@ impl Desktop {
                 }
                 if self.confirm {
                     ui.colored_label(Color32::YELLOW, language.text("This replaces the previewed files. Current files are saved in the local recovery directory first. Extra files are kept."));
-                    if ui.add_enabled(!self.model.busy && !running, egui::Button::new(language.text("Confirm restore"))).clicked() { command = Some(Command::Restore(plan.id())); self.confirm = false; }
-                } else if ui.add_enabled(!running && !self.model.busy, egui::Button::new(language.text("Continue to confirmation"))).clicked() { self.confirm = true; }
+                    if ui.add_enabled(!self.model.busy && !running, Icon::Restore.button(language.text("Confirm restore"))).clicked() { command = Some(Command::Restore(plan.id())); self.confirm = false; }
+                } else if ui.add_enabled(!running && !self.model.busy, Icon::Restore.button(language.text("Continue to confirmation"))).clicked() { self.confirm = true; }
                 if let Some(command) = command { self.model.send(command); }
-                if ui.button(language.text("Close preview")).clicked() { self.model.plan = None; self.confirm = false; }
+                if ui.add(Icon::Close.button(language.text("Close preview"))).clicked() { self.model.plan = None; self.confirm = false; }
             } else {
                 ui.separator(); ui.heading(language.text("History"));
                 for (index, entry) in self.model.history.iter().enumerate() {
@@ -380,8 +430,8 @@ impl Desktop {
                     ui.label(language.text("Restore selected paths (one per line; empty means all)"));
                     ui.text_edit_multiline(&mut self.restore_files);
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(!self.model.busy && !running, egui::Button::new(language.text("Preview restore"))).clicked() { self.model.send(Command::Preview(id, revision.clone(), lines(&self.restore_files))); }
-                        if let Some(older) = older && ui.add_enabled(!self.model.busy, egui::Button::new(language.text("Diff to previous"))).clicked() { self.model.send(Command::Diff(id, older, revision)); }
+                        if ui.add_enabled(!self.model.busy && !running, Icon::Preview.button(language.text("Preview restore"))).clicked() { self.model.send(Command::Preview(id, revision.clone(), lines(&self.restore_files))); }
+                        if let Some(older) = older && ui.add_enabled(!self.model.busy, Icon::Diff.button(language.text("Diff to previous"))).clicked() { self.model.send(Command::Diff(id, older, revision)); }
                     });
                     if running { ui.label(language.text("Stop this task before restoring.")); }
                 }
@@ -407,10 +457,12 @@ impl Desktop {
             save = ui
                 .add_enabled(
                     !self.model.busy,
-                    egui::Button::new(language.text("Save task")),
+                    Icon::Save.button(language.text("Save task")),
                 )
                 .clicked();
-            cancel = ui.button(language.text("Cancel")).clicked();
+            cancel = ui
+                .add(Icon::Close.button(language.text("Cancel")))
+                .clicked();
             ui.label(language.text("Saving does not start a task."));
         });
         egui::ScrollArea::vertical()
@@ -444,13 +496,17 @@ impl Desktop {
                 field(ui, language.text("Name"), &mut draft.name);
                 field(ui, language.text("Local path"), &mut draft.path);
                 ui.horizontal(|ui| {
-                    if ui.button(language.text("Choose folder…")).clicked()
+                    if ui
+                        .add(Icon::Folder.button(language.text("Choose folder…")))
+                        .clicked()
                         && let Some(path) = rfd::FileDialog::new().pick_folder()
                     {
                         draft.path = path.to_string_lossy().into_owned();
                     }
                     if draft.kind == Kind::Watch
-                        && ui.button(language.text("Choose file…")).clicked()
+                        && ui
+                            .add(Icon::File.button(language.text("Choose file…")))
+                            .clicked()
                         && let Some(path) = rfd::FileDialog::new().pick_file()
                     {
                         draft.path = path.to_string_lossy().into_owned();
@@ -462,7 +518,9 @@ impl Desktop {
                     );
                     ui.text_edit_multiline(&mut draft.includes);
                     ui.horizontal(|ui| {
-                        if ui.button(language.text("Add files…")).clicked()
+                        if ui
+                            .add(Icon::File.button(language.text("Add files…")))
+                            .clicked()
                             && let Some(files) = rfd::FileDialog::new()
                                 .set_directory(&draft.path)
                                 .pick_files()
@@ -476,7 +534,9 @@ impl Desktop {
                                 }
                             }
                         }
-                        if ui.button(language.text("Add folder…")).clicked()
+                        if ui
+                            .add(Icon::Folder.button(language.text("Add folder…")))
+                            .clicked()
                             && let Some(file) = rfd::FileDialog::new()
                                 .set_directory(&draft.path)
                                 .pick_folder()
@@ -569,7 +629,7 @@ impl Desktop {
                 if ui
                     .add_enabled(
                         !self.remote.is_empty(),
-                        egui::Button::new(language.text("Save remote")),
+                        Icon::Save.button(language.text("Save remote")),
                     )
                     .clicked()
                 {
@@ -577,7 +637,10 @@ impl Desktop {
                         .send(Command::Remote(self.remote.clone(), self.auto_push));
                     self.remote.clear();
                 }
-                if ui.button(language.text("Fetch workspaces")).clicked() {
+                if ui
+                    .add(Icon::Download.button(language.text("Fetch workspaces")))
+                    .clicked()
+                {
                     self.model.send(Command::Fetch);
                 }
             });
@@ -606,7 +669,9 @@ impl Desktop {
                 &mut self.import_path,
             );
             ui.horizontal(|ui| {
-                if ui.button(language.text("Choose directory…")).clicked()
+                if ui
+                    .add(Icon::Folder.button(language.text("Choose directory…")))
+                    .clicked()
                     && let Some(path) = rfd::FileDialog::new().pick_folder()
                 {
                     self.import_path = path.to_string_lossy().into_owned();
@@ -614,7 +679,7 @@ impl Desktop {
                 if ui
                     .add_enabled(
                         !self.model.busy && !self.import_path.is_empty(),
-                        egui::Button::new(language.text("Import paused")),
+                        Icon::Download.button(language.text("Import paused")),
                     )
                     .clicked()
                     && let Some(branch) = self.model.branches.get(self.import_branch)
@@ -683,12 +748,18 @@ mod tests {
         context: &egui::Context,
         events: Vec<egui::Event>,
     ) -> egui::FullOutput {
+        render_sized(app, context, events, egui::vec2(800.0, 560.0))
+    }
+
+    fn render_sized(
+        app: &mut Desktop,
+        context: &egui::Context,
+        events: Vec<egui::Event>,
+        size: egui::Vec2,
+    ) -> egui::FullOutput {
         let mut output = context.run_ui(
             egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(800.0, 560.0),
-                )),
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
                 events,
                 ..Default::default()
             },
@@ -696,6 +767,117 @@ mod tests {
         );
         output.textures_delta.clear();
         output
+    }
+
+    fn drag_task(
+        app: &mut Desktop,
+        context: &egui::Context,
+        source: Uuid,
+        target: Uuid,
+        after: bool,
+        cancel: bool,
+    ) {
+        let size = egui::vec2(1140.0, 780.0);
+        render_sized(app, context, vec![], size);
+        let output = render_sized(app, context, vec![], size);
+        let name = &app
+            .model
+            .rows
+            .iter()
+            .find(|row| row.draft.id == Some(source))
+            .unwrap()
+            .draft
+            .name;
+        let clip = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if &text.galley.job.text == name => Some(shape.clip_rect),
+                _ => None,
+            })
+            .unwrap();
+        let start = context
+            .read_response(egui::Id::new(("task-drag", source)))
+            .unwrap()
+            .rect
+            .center();
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        render_sized(
+            app,
+            context,
+            vec![egui::Event::PointerMoved(start), button(start, true)],
+            size,
+        );
+        render_sized(
+            app,
+            context,
+            vec![egui::Event::PointerMoved(start + egui::vec2(0.0, 12.0))],
+            size,
+        );
+        assert_eq!(
+            egui::DragAndDrop::payload::<Uuid>(context).as_deref(),
+            Some(&source),
+            "Drag handle did not start at {start:?}, clip={clip:?}"
+        );
+        let mut destination = start;
+        for _ in 0..400 {
+            let rect = context
+                .read_response(egui::Id::new(("task-drop", target)))
+                .unwrap()
+                .rect;
+            destination = egui::pos2(
+                rect.center().x,
+                if after {
+                    rect.bottom() - 4.0
+                } else {
+                    rect.top() + 4.0
+                },
+            );
+            if clip.contains(destination) {
+                break;
+            }
+            let edge = egui::pos2(
+                rect.center().x,
+                if destination.y < clip.top() {
+                    clip.top() + 4.0
+                } else {
+                    clip.bottom() - 4.0
+                },
+            );
+            render_sized(app, context, vec![egui::Event::PointerMoved(edge)], size);
+        }
+        assert!(
+            clip.contains(destination),
+            "Drag autoscroll did not reach the task: source={source} target={target} clip={clip:?} destination={destination:?}"
+        );
+        let output = render_sized(
+            app,
+            context,
+            vec![egui::Event::PointerMoved(destination)],
+            size,
+        );
+        assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::LineSegment { stroke, .. } if stroke.color == theme::ACCENT && stroke.width == 2.0)), "Missing drop position indicator");
+        if cancel {
+            render_sized(
+                app,
+                context,
+                vec![egui::Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+                size,
+            );
+        }
+        render_sized(app, context, vec![button(destination, false)], size);
+        settle(app);
     }
 
     fn click(app: &mut Desktop, context: &egui::Context, label: &str) {
@@ -802,7 +984,7 @@ mod tests {
         settle(&mut app);
         assert!(app.model.start_in_tray);
         app.desktop_settings = false;
-        click(&mut app, &context, language.text("+ Add task"));
+        click(&mut app, &context, language.text("Add task"));
         let draft = app.draft.as_mut().unwrap();
         draft.name = "Desktop notes".into();
         draft.path = source.to_string_lossy().into_owned();
@@ -812,7 +994,7 @@ mod tests {
         assert_eq!(app.model.rows.len(), 1);
         let selected = app.model.rows[0].draft.id;
         for _ in 0..2 {
-            for action in ["Backup settings", "+ Add task", "Refresh"] {
+            for action in ["Backup settings", "Add task", "Refresh"] {
                 click(&mut app, &context, language.text(action));
                 settle(&mut app);
                 let output = render(&mut app, &context, vec![]);
@@ -903,5 +1085,36 @@ mod tests {
             app.model.rows[0].draft.pull_strategy,
             PullStrategy::FastForwardOnly
         );
+        for index in 1..6 {
+            app.model.send(Command::Save(Draft {
+                kind: Kind::Pull,
+                name: format!("Repository {index}"),
+                path: temp
+                    .path()
+                    .join(format!("repo-{index}"))
+                    .to_string_lossy()
+                    .into_owned(),
+                ..Draft::default()
+            }));
+            settle(&mut app);
+        }
+        let ids = |app: &Desktop| {
+            app.model
+                .rows
+                .iter()
+                .map(|row| row.draft.id.unwrap())
+                .collect::<Vec<_>>()
+        };
+        let original = ids(&app);
+        let selection = app.selected;
+        drag_task(&mut app, &context, original[0], original[5], true, false);
+        let mut reordered = original[1..].to_vec();
+        reordered.push(original[0]);
+        assert_eq!(ids(&app), reordered);
+        assert_eq!(app.selected, selection);
+        drag_task(&mut app, &context, original[0], original[1], false, false);
+        assert_eq!(ids(&app), original);
+        drag_task(&mut app, &context, original[0], original[1], true, true);
+        assert_eq!(ids(&app), original);
     }
 }
