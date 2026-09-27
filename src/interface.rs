@@ -1,3 +1,5 @@
+pub(crate) mod spaces;
+
 use std::{
     collections::{HashMap, VecDeque},
     path::PathBuf,
@@ -21,7 +23,7 @@ use crate::{
     workspace::{BackupStore, HistoryEntry, RemoteWorkspace, RestorePlan, Workspace},
 };
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) enum Kind {
     #[default]
     Workspace,
@@ -37,6 +39,8 @@ pub(crate) struct Draft {
     pub path: String,
     pub includes: String,
     pub excludes: String,
+    #[serde(default)]
+    pub follow_links: bool,
     pub branch: String,
     pub remote: String,
     pub url: String,
@@ -50,6 +54,14 @@ pub(crate) struct Row {
     pub draft: Draft,
     pub running: bool,
     pub status: Text,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    #[cfg(test)]
+    Standalone,
+    Local,
+    Remote,
 }
 
 pub(crate) enum Command {
@@ -84,6 +96,7 @@ enum Message {
     #[cfg(feature = "desktop")]
     StartInTray(bool),
     Rows(Vec<Row>),
+    Remote(Option<String>, bool),
     Status(Uuid, Text),
     Schedule(Uuid, Option<Instant>),
     History(Vec<HistoryEntry>),
@@ -95,7 +108,9 @@ enum Message {
 
 pub(crate) struct Model {
     pub update: Option<crate::update::Release>,
-    notifications: crate::update::Notifications,
+    notifications: Option<crate::update::Notifications>,
+    pub remote: Option<String>,
+    pub auto_push: bool,
     pub language: Language,
     #[cfg(feature = "desktop")]
     pub start_in_tray: bool,
@@ -116,6 +131,7 @@ pub(crate) struct Model {
 
 struct Worker {
     store: BackupStore,
+    scope: Scope,
     sender: Sender<Message>,
     active: HashMap<Uuid, (StopToken, JoinHandle<Result<()>>)>,
     states: HashMap<Uuid, Text>,
@@ -162,6 +178,7 @@ impl Default for Draft {
             path: String::new(),
             includes: "AGENTS.md\n.agents".into(),
             excludes: String::new(),
+            follow_links: false,
             branch: String::new(),
             remote: "origin".into(),
             url: String::new(),
@@ -180,6 +197,7 @@ impl Draft {
             path: value.root().to_string_lossy().into_owned(),
             includes: value.includes().join("\n"),
             excludes: value.excludes().join("\n"),
+            follow_links: value.follows_links(),
             branch: value.branch().into(),
             ..Self::default()
         }
@@ -228,8 +246,14 @@ impl Model {
         Self::with_language(data, Language::English)
     }
 
+    #[cfg(test)]
     pub fn with_language(data: Option<PathBuf>, language: Language) -> Self {
-        let notifications = crate::update::Notifications::start(data.clone());
+        Self::open(data, language, Scope::Standalone)
+    }
+
+    fn open(data: Option<PathBuf>, language: Language, scope: Scope) -> Self {
+        let notifications =
+            (scope != Scope::Remote).then(|| crate::update::Notifications::start(data.clone()));
         let (sender, commands) = mpsc::channel();
         let (messages, receiver) = mpsc::channel();
         let stop = StopToken::default();
@@ -243,8 +267,13 @@ impl Model {
                 let store = BackupStore::open(directory)?;
                 let _lock = Lock::acquire(&store.directory().join("interface.lock"))
                     .context("Another task interface is using this data directory")?;
+                ensure!(
+                    scope != Scope::Remote || store.remote()?.0.is_some(),
+                    "A remote repository is required"
+                );
                 let mut worker = Worker {
                     store,
+                    scope,
                     sender: messages.clone(),
                     active: HashMap::new(),
                     states: HashMap::new(),
@@ -277,6 +306,8 @@ impl Model {
         Self {
             update: None,
             notifications,
+            remote: None,
+            auto_push: false,
             rows: Vec::new(),
             pull_schedule: HashMap::new(),
             history: Vec::new(),
@@ -308,11 +339,15 @@ impl Model {
     }
 
     pub fn poll(&mut self) {
-        if let Some(release) = self.notifications.poll() {
+        if let Some(release) = self.notifications.as_ref().and_then(|notice| notice.poll()) {
             self.update = Some(release);
         }
         while let Ok(message) = self.receiver.try_recv() {
             match message {
+                Message::Remote(remote, auto_push) => {
+                    self.remote = remote;
+                    self.auto_push = auto_push;
+                }
                 Message::Language(language) => self.language = language,
                 #[cfg(feature = "desktop")]
                 Message::StartInTray(enabled) => self.start_in_tray = enabled,
@@ -369,6 +404,7 @@ impl Model {
         }
     }
 
+    #[cfg(test)]
     pub fn set_language(&mut self, language: Language) {
         self.send(Command::Language(language));
     }
@@ -457,6 +493,8 @@ impl Worker {
     }
 
     fn refresh(&self) -> Result<()> {
+        let (remote, auto_push) = self.store.remote()?;
+        let _ = self.sender.send(Message::Remote(remote, auto_push));
         let rows = self
             .drafts()?
             .into_iter()
@@ -542,6 +580,7 @@ impl Worker {
                 self.refresh()?;
             }
             Command::Save(mut draft) => {
+                draft.name = draft.name.trim().to_owned();
                 ensure!(!draft.name.trim().is_empty(), "Enter a task name");
                 ensure!(!draft.path.trim().is_empty(), "Enter a local path");
                 if let Some(id) = draft.id {
@@ -561,6 +600,9 @@ impl Worker {
                         .workspaces()?
                         .into_iter()
                         .find(|w| Some(w.id()) == draft.id);
+                    let branch_changed = existing
+                        .as_ref()
+                        .is_none_or(|w| draft.branch.trim() != w.branch());
                     let builder = match existing {
                         Some(workspace) => workspace.edit(),
                         None => Workspace::builder(&draft.name, &draft.path),
@@ -569,8 +611,9 @@ impl Worker {
                         .name(&draft.name)
                         .root(&draft.path)
                         .includes(lines(&draft.includes))
-                        .excludes(lines(&draft.excludes));
-                    if !draft.branch.trim().is_empty() {
+                        .excludes(lines(&draft.excludes))
+                        .follow_links(draft.follow_links);
+                    if branch_changed && !draft.branch.trim().is_empty() {
                         builder = builder.branch(draft.branch.trim());
                     }
                     let workspace = builder.paused(true).build()?;
@@ -595,6 +638,7 @@ impl Worker {
                     let _lock = Lock::acquire(&self.store.directory().join("tasks.lock"))?;
                     let mut tasks = self.tasks()?;
                     let id = *draft.id.get_or_insert_with(Uuid::new_v4);
+                    self.store.check_task_name(id, &draft.name)?;
                     if let Some(existing) = tasks.iter_mut().find(|task| task.id == Some(id)) {
                         *existing = draft;
                     } else {
@@ -670,7 +714,11 @@ impl Worker {
                 let sender = self.sender.clone();
                 let stop = StopToken::default();
                 let token = stop.clone();
+                let (begin, ready) = mpsc::channel();
                 let handle = thread::spawn(move || {
+                    if ready.recv().is_err() {
+                        return Ok(());
+                    }
                     let report = |event| {
                         let _ = sender.send(Message::Status(id, event_text(event)));
                     };
@@ -736,7 +784,10 @@ impl Worker {
                 });
                 self.active.insert(id, (stop, handle));
                 self.states.remove(&id);
-                self.refresh()?;
+                // Publish the running row before its first status or deadline can arrive.
+                let result = self.refresh();
+                let _ = begin.send(());
+                result?;
             }
             Command::Stop(id) => {
                 self.remember(id, false)?;
@@ -781,8 +832,17 @@ impl Worker {
                 return Ok("Uploaded workspace branch".into());
             }
             Command::Remote(url, automatic) => {
+                ensure!(
+                    self.scope != Scope::Local,
+                    "The default workspace is local; its remote cannot be changed"
+                );
+                ensure!(
+                    self.scope != Scope::Remote || !url.trim().is_empty(),
+                    "A remote repository is required"
+                );
                 self.store
                     .set_remote((!url.is_empty()).then_some(url.as_str()), automatic)?;
+                self.refresh()?;
             }
             Command::Fetch => {
                 let _ = self.sender.send(Message::Branches(self.store.fetch()?));
@@ -978,6 +1038,63 @@ mod tests {
     }
 
     #[test]
+    fn task_names_are_unique_across_kinds_and_edits() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        fs::create_dir(&source).unwrap();
+        git(&source, &["init", "-b", "main"]);
+        fs::write(source.join("notes.md"), "notes").unwrap();
+        let mut model = Model::new(Some(temp.path().join("data")));
+        wait(&mut model);
+        for (kind, name) in [
+            (Kind::Workspace, "Notes"),
+            (Kind::Watch, "Watch"),
+            (Kind::Pull, "Pull"),
+        ] {
+            command(
+                &mut model,
+                Command::Save(Draft {
+                    kind,
+                    name: name.into(),
+                    path: source.to_string_lossy().into_owned(),
+                    includes: "notes.md".into(),
+                    remote: "origin".into(),
+                    ..Draft::default()
+                }),
+            );
+        }
+        let drafts: Vec<_> = model.rows.iter().map(|row| row.draft.clone()).collect();
+        for (index, draft) in drafts.iter().enumerate() {
+            let mut conflicting = draft.clone();
+            conflicting.name = format!(
+                " {} ",
+                drafts[(index + 1) % drafts.len()].name.to_lowercase()
+            );
+            model.send(Command::Save(conflicting.clone()));
+            wait(&mut model);
+            assert!(
+                model
+                    .error
+                    .as_ref()
+                    .unwrap()
+                    .contains("name already exists")
+            );
+            conflicting.id = None;
+            model.send(Command::Save(conflicting));
+            wait(&mut model);
+            assert!(
+                model
+                    .error
+                    .as_ref()
+                    .unwrap()
+                    .contains("name already exists")
+            );
+            command(&mut model, Command::Save(draft.clone()));
+        }
+        assert_eq!(model.rows.len(), 3);
+    }
+
+    #[test]
     fn run_once_preserves_started_state_for_all_task_kinds() {
         let temp = tempfile::tempdir().unwrap();
 
@@ -1060,7 +1177,10 @@ mod tests {
                 if ready {
                     break;
                 }
-                assert!(Instant::now() < deadline, "Task did not start: {status}");
+                assert!(
+                    Instant::now() < deadline,
+                    "{kind:?} task did not start: {status}"
+                );
                 thread::sleep(Duration::from_millis(10));
             }
             let previous_deadline = model.pull_schedule.get(&id).copied().flatten();
@@ -1529,10 +1649,10 @@ mod tests {
         );
         let mut old = serde_json::to_value(Draft::default()).unwrap();
         old.as_object_mut().unwrap().remove("pull_strategy");
-        assert_eq!(
-            serde_json::from_value::<Draft>(old).unwrap().pull_strategy,
-            PullStrategy::FastForwardOnly
-        );
+        old.as_object_mut().unwrap().remove("follow_links");
+        let old: Draft = serde_json::from_value(old).unwrap();
+        assert!(!old.follow_links);
+        assert_eq!(old.pull_strategy, PullStrategy::FastForwardOnly);
         command(&mut model, Command::Remove(id));
         assert_eq!(model.rows.len(), 1);
     }

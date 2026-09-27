@@ -64,6 +64,228 @@ fn workspace(root: &Path, name: &str) -> Workspace {
 }
 
 #[test]
+fn named_branches_rename_history_and_reject_conflicting_tasks() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("source");
+    project(&root, "original");
+    let store = BackupStore::open(temp.path().join("store")).unwrap();
+    let task = Workspace::builder("quic", &root)
+        .include("AGENTS.md")
+        .build()
+        .unwrap();
+    assert_eq!(task.branch(), "quic");
+    store.register(task.clone()).unwrap();
+    let duplicate = Workspace::builder(" QuIc ", &root)
+        .branch("different")
+        .include("AGENTS.md")
+        .build()
+        .unwrap();
+    assert!(
+        store
+            .register(duplicate)
+            .unwrap_err()
+            .to_string()
+            .contains("name already exists")
+    );
+    assert!(
+        store
+            .register(
+                Workspace::builder("quic", &root)
+                    .branch("other")
+                    .include("AGENTS.md")
+                    .build()
+                    .unwrap()
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("name already exists")
+    );
+    let remote = temp.path().join("remote.git");
+    git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+    store
+        .set_remote(Some(remote.to_str().unwrap()), true)
+        .unwrap();
+    store.push(task.id()).unwrap();
+    let first = store
+        .status(task.id())
+        .unwrap()
+        .unwrap()
+        .commit()
+        .to_owned();
+    let config = fs::read(store.directory().join("config.json")).unwrap();
+    let renamed = task.edit().name("Quic notes").build().unwrap();
+    assert_eq!(renamed.branch(), "Quic-notes");
+    git(&remote, &["config", "receive.denyDeletes", "true"]);
+    assert!(store.update(renamed.clone()).is_err());
+    assert_eq!(store.workspaces().unwrap()[0].name(), "quic");
+    assert_eq!(git(&remote, &["rev-parse", "quic"]), first);
+    assert_eq!(
+        git(
+            &remote,
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/heads/Quic-notes"
+            ]
+        ),
+        ""
+    );
+    git(&remote, &["config", "receive.denyDeletes", "false"]);
+    store.update(renamed.clone()).unwrap();
+    let latest = store
+        .status(task.id())
+        .unwrap()
+        .unwrap()
+        .commit()
+        .to_owned();
+    assert_eq!(
+        git(&remote, &["show", "Quic-notes:files/AGENTS.md"]),
+        "original"
+    );
+    assert_eq!(git(&remote, &["rev-parse", "Quic-notes^"]), first);
+    let manifest: serde_json::Value =
+        serde_json::from_str(&git(&remote, &["show", "Quic-notes:manifest.json"])).unwrap();
+    assert_eq!(manifest["name"], "Quic notes");
+    assert_eq!(
+        git(
+            &remote,
+            &["for-each-ref", "--format=%(refname)", "refs/heads/quic"]
+        ),
+        ""
+    );
+    // Simulate interruption after the remote accepted the rename but before config was saved.
+    fs::write(store.directory().join("config.json"), &config).unwrap();
+    git(
+        store.repository(),
+        &["update-ref", "refs/heads/quic", &first],
+    );
+    store.update(renamed.clone()).unwrap();
+    assert_eq!(store.status(task.id()).unwrap().unwrap().commit(), latest);
+    assert_eq!(store.workspaces().unwrap()[0].id(), task.id());
+    // An unrelated destination, even with identical contents, must never be overwritten.
+    git(&remote, &["update-ref", "refs/heads/taken", &first]);
+    let failed = renamed.edit().name("taken").build().unwrap();
+    assert!(
+        store
+            .update(failed)
+            .unwrap_err()
+            .to_string()
+            .contains("already exists")
+    );
+    assert_eq!(store.workspaces().unwrap()[0].name(), "Quic notes");
+    assert_eq!(git(&remote, &["rev-parse", "taken"]), first);
+    assert_eq!(
+        git(
+            store.repository(),
+            &["for-each-ref", "--format=%(refname)", "refs/heads/taken"]
+        ),
+        ""
+    );
+    // A failed rename must not block backing up or choosing another name.
+    fs::write(root.join("AGENTS.md"), "new contents").unwrap();
+    store.backup(task.id()).unwrap();
+    let final_task = renamed.edit().name("final").build().unwrap();
+    store.update(final_task).unwrap();
+    assert_eq!(
+        git(&remote, &["show", "final:files/AGENTS.md"]),
+        "new contents"
+    );
+    // Existing UUID branch bindings remain usable and can be explicitly migrated.
+    let legacy = Workspace::builder("legacy", &root)
+        .branch("workspaces/old-id")
+        .include("AGENTS.md")
+        .build()
+        .unwrap();
+    store.register(legacy.clone()).unwrap();
+    store.push(legacy.id()).unwrap();
+    store
+        .update(legacy.edit().branch("legacy").build().unwrap())
+        .unwrap();
+    assert_eq!(
+        git(&remote, &["show", "legacy:files/AGENTS.md"]),
+        "new contents"
+    );
+    // CLI/API backup creation shares the name namespace used by GUI pull/watch tasks.
+    fs::write(
+        store.directory().join("tasks.json"),
+        serde_json::to_vec(&serde_json::json!([{
+            "id": uuid::Uuid::new_v4(), "name": "Pull task"
+        }]))
+        .unwrap(),
+    )
+    .unwrap();
+    let collision = Workspace::builder("pull TASK", &root)
+        .include("AGENTS.md")
+        .build()
+        .unwrap();
+    assert!(
+        store
+            .register(collision)
+            .unwrap_err()
+            .to_string()
+            .contains("name already exists")
+    );
+}
+
+#[test]
+fn first_upload_failures_keep_local_snapshots_for_retry() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("source");
+    project(&root, "saved locally");
+    let store = BackupStore::open(temp.path().join("store")).unwrap();
+    let task = workspace(&root, "notes");
+    store.register(task.clone()).unwrap();
+    let remote = temp.path().join("missing.git");
+    store
+        .set_remote(Some(remote.to_str().unwrap()), true)
+        .unwrap();
+    fs::rename(&root, temp.path().join("offline-source")).unwrap();
+    assert!(store.push(task.id()).is_err());
+    assert!(store.status(task.id()).unwrap().is_none());
+    fs::rename(temp.path().join("offline-source"), &root).unwrap();
+    assert!(store.push(task.id()).is_err());
+    let report = store.status(task.id()).unwrap().unwrap();
+    assert_eq!(report.files(), 2);
+    assert!(matches!(report.upload(), UploadState::Failed { .. }));
+    git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+    store.push(task.id()).unwrap();
+    assert_eq!(git(&remote, &["rev-parse", "notes"]), report.commit());
+    assert!(matches!(
+        store.status(task.id()).unwrap().unwrap().upload(),
+        UploadState::Synced
+    ));
+    store
+        .set_remote(Some(remote.to_str().unwrap()), false)
+        .unwrap();
+    let local = workspace(&root, "local");
+    store.register(local.clone()).unwrap();
+    store.backup(local.id()).unwrap();
+    store
+        .update(local.edit().name("renamed-local").build().unwrap())
+        .unwrap();
+    assert_eq!(
+        git(
+            &remote,
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/heads/renamed-local"
+            ]
+        ),
+        ""
+    );
+    assert!(matches!(
+        store.status(local.id()).unwrap().unwrap().upload(),
+        UploadState::Pending
+    ));
+    store.push(local.id()).unwrap();
+    assert_eq!(
+        git(&remote, &["show", "renamed-local:files/AGENTS.md"]),
+        "saved locally"
+    );
+}
+
+#[test]
 fn switching_remotes_invalidates_previously_fetched_workspace_branches() {
     let temp = TempDir::new().unwrap();
     let root = temp.path().join("source");
@@ -73,11 +295,20 @@ fn switching_remotes_invalidates_previously_fetched_workspace_branches() {
     let producer = BackupStore::open(temp.path().join("producer")).unwrap();
     let workspace = workspace(&root, "notes");
     producer.register(workspace.clone()).unwrap();
-    producer.backup(workspace.id()).unwrap();
     producer
         .set_remote(Some(remote.to_str().unwrap()), false)
         .unwrap();
+    assert!(producer.status(workspace.id()).unwrap().is_none());
     producer.push(workspace.id()).unwrap();
+    let first = producer.status(workspace.id()).unwrap().unwrap();
+    assert_eq!(first.files(), 2);
+    fs::rename(&root, temp.path().join("offline-source")).unwrap();
+    producer.push(workspace.id()).unwrap();
+    assert_eq!(
+        producer.status(workspace.id()).unwrap().unwrap().commit(),
+        first.commit()
+    );
+    fs::rename(temp.path().join("offline-source"), &root).unwrap();
     assert!(matches!(
         producer.status(workspace.id()).unwrap().unwrap().upload(),
         UploadState::Synced
@@ -444,26 +675,128 @@ fn selection_and_store_boundaries_reject_unsafe_paths_and_branch_aliases() {
     assert!(store.history(first.id(), None, 10).unwrap().is_empty());
 }
 
-#[cfg(unix)]
 #[test]
-fn symlinks_are_never_followed_during_backup_or_restore() {
-    use std::os::unix::fs::symlink;
+fn following_links_backs_up_contents_without_changing_restore_boundaries() {
+    fn link(target: &Path, path: &Path, directory: bool) {
+        #[cfg(unix)]
+        {
+            let _ = directory;
+            std::os::unix::fs::symlink(target, path).unwrap();
+        }
+        #[cfg(windows)]
+        if directory {
+            std::os::windows::fs::symlink_dir(target, path).unwrap();
+        } else {
+            std::os::windows::fs::symlink_file(target, path).unwrap();
+        }
+    }
+    fn unlink_dir(path: &Path) {
+        #[cfg(unix)]
+        fs::remove_file(path).unwrap();
+        #[cfg(windows)]
+        fs::remove_dir(path).unwrap();
+    }
     let temp = TempDir::new().unwrap();
     let source = temp.path().join("source");
-    project(&source, "original");
-    let store = BackupStore::open(temp.path().join("store")).unwrap();
-    let workspace = workspace(&source, "notes");
-    store.register(workspace.clone()).unwrap();
-    let snapshot = store.backup(workspace.id()).unwrap();
     let outside = temp.path().join("outside");
-    fs::write(&outside, "outside").unwrap();
-    fs::remove_file(source.join("AGENTS.md")).unwrap();
-    symlink(&outside, source.join("AGENTS.md")).unwrap();
+    fs::create_dir(&source).unwrap();
+    fs::create_dir(&outside).unwrap();
+    fs::write(source.join("notes.md"), "local").unwrap();
+    fs::write(outside.join("SKILL.md"), "skill v1").unwrap();
+    fs::write(outside.join(".env"), "secret").unwrap();
+    link(&outside, &source.join("skills"), true);
+    link(
+        &Path::new("..").join("outside").join("SKILL.md"),
+        &source.join("prompt.md"),
+        false,
+    );
+    let store = BackupStore::open(temp.path().join("store")).unwrap();
+    let workspace = Workspace::builder("agents", &source)
+        .include("skills")
+        .include("skills/SKILL.md")
+        .include("prompt.md")
+        .include("notes.md")
+        .build()
+        .unwrap();
+    // Old configurations retain the opt-in boundary.
+    let mut legacy = serde_json::to_value(&workspace).unwrap();
+    legacy.as_object_mut().unwrap().remove("follow_links");
+    assert!(
+        !serde_json::from_value::<Workspace>(legacy)
+            .unwrap()
+            .follows_links()
+    );
+    store.register(workspace.clone()).unwrap();
     assert!(store.backup(workspace.id()).is_err());
+    assert!(store.history(workspace.id(), None, 10).unwrap().is_empty());
+    let workspace = workspace.edit().follow_links(true).build().unwrap();
+    store.update(workspace.clone()).unwrap();
+    assert!(store.workspaces().unwrap()[0].follows_links());
+    let snapshot = store.backup(workspace.id()).unwrap();
+    assert_eq!(snapshot.files(), 3);
+    let fingerprint = store.fingerprint(workspace.id()).unwrap();
+    fs::write(outside.join("SKILL.md"), "skill v2").unwrap();
+    assert_ne!(fingerprint, store.fingerprint(workspace.id()).unwrap());
     assert!(
         store
             .preview_restore(workspace.id(), snapshot.commit(), &[])
             .is_err()
     );
-    assert_eq!(fs::read(&outside).unwrap(), b"outside");
+    link(&outside, &outside.join("loop"), true);
+    assert!(
+        store
+            .backup(workspace.id())
+            .unwrap_err()
+            .to_string()
+            .contains("cycle")
+    );
+    unlink_dir(&outside.join("loop"));
+    link(store.directory(), &outside.join("backup"), true);
+    assert!(store.backup(workspace.id()).is_err());
+    unlink_dir(&outside.join("backup"));
+    link(&outside.join(".env"), &outside.join("secret.txt"), false);
+    assert!(
+        store
+            .backup(workspace.id())
+            .unwrap_err()
+            .to_string()
+            .contains("protected")
+    );
+    fs::remove_file(outside.join("secret.txt")).unwrap();
+    link(&outside.join("missing"), &outside.join("broken"), false);
+    assert_eq!(store.backup(workspace.id()).unwrap().files(), 3);
+    // Exclusions refer to the visible source path, including linked children.
+    fs::write(outside.join("extra.md"), "excluded").unwrap();
+    store
+        .update(workspace.edit().exclude("skills/extra.md").build().unwrap())
+        .unwrap();
+    assert_eq!(store.backup(workspace.id()).unwrap().files(), 3);
+    fs::remove_file(outside.join("broken")).unwrap();
+    let absent = temp.path().join("absent");
+    fs::rename(&outside, &absent).unwrap();
+    fs::write(source.join("notes.md"), "local v2").unwrap();
+    let retained = store.backup(workspace.id()).unwrap();
+    assert!(retained.changed());
+    assert_eq!(retained.files(), 3);
+    assert_eq!(retained.retained(), &["prompt.md", "skills/SKILL.md"]);
+    fs::rename(&absent, &outside).unwrap();
+    assert_eq!(fs::read(outside.join("SKILL.md")).unwrap(), b"skill v2");
+    unlink_dir(&source.join("skills"));
+    fs::remove_file(source.join("prompt.md")).unwrap();
+    let plan = store
+        .preview_restore(workspace.id(), snapshot.commit(), &[])
+        .unwrap();
+    assert!(store.apply_restore(plan.id()).unwrap().error().is_none());
+    assert_eq!(
+        fs::read(source.join("skills/SKILL.md")).unwrap(),
+        b"skill v1"
+    );
+    assert_eq!(fs::read(source.join("prompt.md")).unwrap(), b"skill v1");
+    assert!(
+        !fs::symlink_metadata(source.join("skills"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read(outside.join("SKILL.md")).unwrap(), b"skill v2");
 }

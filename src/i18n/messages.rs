@@ -1,5 +1,55 @@
 // English source messages are stable keys. Numbered values are inserted verbatim.
 pub(super) const TEXT: &[(&str, &str)] = &[
+    ("Follow symbolic links", "跟随符号链接"),
+    (
+        "Follow symbolic links (Left/Right)",
+        "跟随符号链接（左右键切换）",
+    ),
+    (
+        "Back up target contents, including outside this project. Restore requires ordinary destination paths.",
+        "备份链接目标的实际内容，可能包含项目外的文件。恢复位置不能经过符号链接。",
+    ),
+    (
+        "Back up symbolic-link target contents, including outside the source directory.",
+        "备份符号链接目标的实际内容，包括源目录外的文件。",
+    ),
+    (
+        "Enable or disable reading symbolic-link targets during backup.",
+        "启用或禁用备份时读取符号链接目标。",
+    ),
+    ("Save", "保存"),
+    ("Workspaces", "工作空间"),
+    ("Default workspace", "默认工作空间"),
+    ("New workspace", "新建工作空间"),
+    ("Rename workspace", "重命名工作空间"),
+    ("Remove workspace", "移除工作空间"),
+    ("Remote repository (required)", "远程仓库（必填）"),
+    ("Creating workspace…", "正在创建工作空间…"),
+    (
+        "Only empty workspaces can be removed. Backup data stays on disk.",
+        "只能移除空工作空间，备份数据仍保留在磁盘上。",
+    ),
+    (
+        "Each workspace keeps its own tasks and backup history. Switching leaves started tasks running.",
+        "每个工作空间独立保存任务和备份历史，切换后已启动的任务继续运行。",
+    ),
+    (
+        "The default workspace is local. Create another workspace to configure a remote repository.",
+        "默认工作空间仅在本地使用；如需配置远程仓库，请创建其他工作空间。",
+    ),
+    (
+        "The remote from your previous version is preserved.",
+        "旧版本已配置的远程仓库会继续保留。",
+    ),
+    ("F4: workspaces", "F4：工作空间"),
+    (
+        "Tab: next field  Ctrl+S: save  Esc: cancel",
+        "Tab：下一项  Ctrl+S：保存  Esc：取消",
+    ),
+    (
+        "↑↓: select  Enter: switch  n: new  e: rename current  x: remove current  Esc: close",
+        "↑↓：选择  Enter：切换  n：新建  e：重命名当前空间  x：移除当前空间  Esc：关闭",
+    ),
     ("Text lines", "文本行数"),
     ("File types", "文件类型"),
     ("File type", "文件类型"),
@@ -719,8 +769,40 @@ pub(super) const TEXT: &[(&str, &str)] = &[
         "分支已存在，请使用导入操作",
     ),
     (
-        "Changing a registered branch requires an explicit migration",
-        "更换已注册的分支需要显式迁移",
+        "A task with this name already exists in this workspace",
+        "此工作空间中已有同名任务（不区分大小写）",
+    ),
+    (
+        "Backup branch conflicts with an existing branch name",
+        "备份分支与已有分支名称冲突",
+    ),
+    (
+        "Migrate the backup history to this branch, including on the configured remote.",
+        "迁移备份历史到此分支，包括已配置的远端分支。",
+    ),
+    (
+        "Invalid backup branch; use a Git-compatible task name or set a branch explicitly",
+        "备份分支名无效；请使用符合 Git 规则的任务名，或指定分支",
+    ),
+    (
+        "Backup branches cannot differ only by letter case",
+        "分支不能仅修改大小写；请先改为另一名称，再改为目标名称",
+    ),
+    (
+        "Remote branch already exists; fetch and import it before renaming",
+        "远端分支已存在，请先获取并导入，再重命名",
+    ),
+    (
+        "Remote branch already exists; choose another task name",
+        "远端已有同名分支，请使用其他任务名",
+    ),
+    (
+        "Remote history changed; fetch and reconcile it before renaming",
+        "远端历史已变化，请先获取并解决分歧，再重命名",
+    ),
+    (
+        "Could not rename remote branch; check connectivity, branch protection and the repository default branch",
+        "无法重命名远端分支；请检查网络、分支保护以及仓库默认分支设置",
     ),
     ("Missing parent commit", "缺少父提交"),
     ("Configure a backup remote first", "请先配置备份远端"),
@@ -1016,6 +1098,55 @@ pub(super) const TEXT: &[(&str, &str)] = &[
 
 // Existing core errors carry English text. Only known application templates are translated.
 pub(super) const ERRORS: &[(&str, &str)] = &[
+    ("Symbolic link cycle: {}", "符号链接存在循环：{0}"),
+    (
+        "Selection exceeds 128 directory levels",
+        "所选内容超过 128 层目录",
+    ),
+    ("Cannot resolve symbolic link: {}", "无法解析符号链接：{0}"),
+    (
+        "Symbolic link targets a protected path: {}",
+        "符号链接指向受保护的路径：{0}",
+    ),
+    (
+        "The default workspace is local; its remote cannot be changed",
+        "默认工作空间仅在本地使用，不能更改远程仓库",
+    ),
+    (
+        "The default workspace cannot be renamed or removed",
+        "默认工作空间不能重命名或移除",
+    ),
+    ("A remote repository is required", "必须填写远程仓库"),
+    (
+        "Only an empty, idle workspace can be removed",
+        "只能移除没有任务且空闲的工作空间",
+    ),
+    (
+        "Enter a workspace name (1–128 bytes, no control characters)",
+        "请输入工作空间名称（1–128 字节，不含控制字符）",
+    ),
+    (
+        "A workspace with this name already exists",
+        "已存在同名工作空间",
+    ),
+    ("Workspace is unavailable", "工作空间不可用"),
+    ("Workspace creation failed", "创建工作空间失败"),
+    ("Cannot read workspace catalog", "无法读取工作空间清单"),
+    ("Duplicate workspace ID", "工作空间标识重复"),
+    ("Duplicate workspace name", "工作空间名称重复"),
+    (
+        "Workspace data directory is missing",
+        "工作空间数据目录缺失",
+    ),
+    ("Workspace configuration is missing", "工作空间配置缺失"),
+    (
+        "Workspace catalog has an invalid selection or no default workspace",
+        "工作空间清单的选中项无效或缺少默认工作空间",
+    ),
+    (
+        "Cannot roll back workspace creation; data was retained",
+        "无法回滚工作空间创建，数据已保留",
+    ),
     (
         "Symbolic link is not allowed: {}",
         "不允许使用符号链接：{0}",

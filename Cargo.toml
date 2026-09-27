@@ -10,7 +10,7 @@ readme = "README.md"
 keywords = ["git", "backup", "watch", "cli", "workspace"]
 categories = ["command-line-utilities", "filesystem"]
 default-run = "gitwatch"
-include = ["/src/**", "/tests/**", "/assets/fonts/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
+include = ["/src/**", "/tests/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
 
 [[bin]]
 name = "gitwatch"

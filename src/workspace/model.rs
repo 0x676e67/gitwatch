@@ -15,6 +15,8 @@ pub struct Workspace {
     pub(crate) branch: String,
     pub(crate) include: Vec<String>,
     pub(crate) exclude: Vec<String>,
+    #[serde(default)]
+    pub(crate) follow_links: bool,
     pub(crate) paused: bool,
 }
 
@@ -92,14 +94,16 @@ impl Workspace {
     /// Creates a workspace builder with a stable ID and an independent branch.
     pub fn builder(name: impl Into<String>, root: impl Into<PathBuf>) -> WorkspaceBuilder {
         let id = Uuid::new_v4();
+        let name = name.into().trim().to_owned();
         WorkspaceBuilder {
             workspace: Self {
                 id,
-                name: name.into(),
+                branch: branch_name(&name),
+                name,
                 root: root.into(),
-                branch: format!("workspaces/{id}"),
                 include: Vec::new(),
                 exclude: Vec::new(),
+                follow_links: false,
                 paused: false,
             },
         }
@@ -135,6 +139,10 @@ impl Workspace {
     pub fn excludes(&self) -> &[String] {
         &self.exclude
     }
+    /// Returns whether backups read the contents of symbolic-link targets.
+    pub fn follows_links(&self) -> bool {
+        self.follow_links
+    }
     /// Returns whether automatic backup is paused.
     pub fn is_paused(&self) -> bool {
         self.paused
@@ -168,9 +176,14 @@ impl Workspace {
 // ===== impl WorkspaceBuilder =====
 
 impl WorkspaceBuilder {
-    /// Sets a display name without changing identity or history.
+    /// Sets the task name and derives its branch when the name changes.
+    /// Updating a registered task migrates its history to the new branch.
     pub fn name(mut self, name: impl Into<String>) -> Self {
-        self.workspace.name = name.into();
+        let name = name.into().trim().to_owned();
+        if self.workspace.name != name {
+            self.workspace.branch = branch_name(&name);
+            self.workspace.name = name;
+        }
         self
     }
     /// Binds this workspace to a local source directory.
@@ -178,7 +191,7 @@ impl WorkspaceBuilder {
         self.workspace.root = root.into();
         self
     }
-    /// Sets the backup branch; existing registered branches cannot be silently renamed.
+    /// Sets the backup branch; updating an existing binding migrates its history.
     pub fn branch(mut self, branch: impl Into<String>) -> Self {
         self.workspace.branch = branch.into();
         self
@@ -203,6 +216,12 @@ impl WorkspaceBuilder {
         self.workspace.exclude = patterns;
         self
     }
+    /// Reads symbolic-link targets as ordinary files and directories. Disabled by default.
+    /// Targets may be outside the source; restoration still refuses linked destinations.
+    pub fn follow_links(mut self, enabled: bool) -> Self {
+        self.workspace.follow_links = enabled;
+        self
+    }
     /// Pauses or resumes automatic backup.
     pub fn paused(mut self, paused: bool) -> Self {
         self.workspace.paused = paused;
@@ -214,6 +233,10 @@ impl WorkspaceBuilder {
         self.workspace.root = paths::root(&self.workspace.root)?;
         Ok(self.workspace)
     }
+}
+
+fn branch_name(name: &str) -> String {
+    name.split_whitespace().collect::<Vec<_>>().join("-")
 }
 
 // ===== impl Manifest =====

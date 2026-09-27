@@ -166,12 +166,18 @@ enum WorkspaceAction {
         includes: Vec<String>,
         #[arg(long = "exclude")]
         excludes: Vec<String>,
+        /// Back up symbolic-link target contents, including outside the source directory.
+        #[arg(long)]
+        follow_links: bool,
     },
     List,
     Edit {
         workspace: String,
         #[arg(long)]
         name: Option<String>,
+        /// Migrate the backup history to this branch, including on the configured remote.
+        #[arg(long)]
+        branch: Option<String>,
         #[arg(long)]
         root: Option<PathBuf>,
         #[arg(long = "include")]
@@ -180,6 +186,9 @@ enum WorkspaceAction {
         excludes: Vec<String>,
         #[arg(long)]
         clear_excludes: bool,
+        /// Enable or disable reading symbolic-link targets during backup.
+        #[arg(long, action = clap::ArgAction::Set)]
+        follow_links: Option<bool>,
         #[arg(long, conflicts_with = "resume")]
         pause: bool,
         #[arg(long)]
@@ -608,10 +617,12 @@ fn workspace_command(
             branch,
             includes,
             excludes,
+            follow_links,
         } => {
             let mut builder = Workspace::builder(name, root)
                 .includes(includes)
-                .excludes(excludes);
+                .excludes(excludes)
+                .follow_links(follow_links);
             if let Some(branch) = branch {
                 builder = builder.branch(branch);
             }
@@ -656,16 +667,21 @@ fn workspace_command(
         WorkspaceAction::Edit {
             workspace,
             name,
+            branch,
             root,
             includes,
             excludes,
             clear_excludes,
+            follow_links,
             pause,
             resume,
         } => {
             let mut builder = find(&store, &workspace)?.edit();
             if let Some(name) = name {
                 builder = builder.name(name);
+            }
+            if let Some(branch) = branch {
+                builder = builder.branch(branch);
             }
             if let Some(root) = root {
                 builder = builder.root(root);
@@ -675,6 +691,9 @@ fn workspace_command(
             }
             if clear_excludes || !excludes.is_empty() {
                 builder = builder.excludes(excludes);
+            }
+            if let Some(enabled) = follow_links {
+                builder = builder.follow_links(enabled);
             }
             if pause || resume {
                 builder = builder.paused(pause);

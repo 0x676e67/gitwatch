@@ -94,8 +94,18 @@ fn workspace_json_backup_and_confirmed_restore_round_trip() {
         "notes",
         "--include",
         "notes.md",
+        "--follow-links",
     ]);
     let id = workspace["id"].as_str().unwrap();
+    assert_eq!(workspace["follow_links"], true);
+    assert_eq!(
+        run(&["edit", id, "--follow-links", "false"])["follow_links"],
+        false
+    );
+    assert_eq!(
+        run(&["edit", id, "--follow-links", "true"])["follow_links"],
+        true
+    );
     let backup = run(&["backup", id]);
     assert_eq!(backup["event"], "backup");
     fs::write(source.join("notes.md"), "local edit").unwrap();
