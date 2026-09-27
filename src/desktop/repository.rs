@@ -7,7 +7,7 @@ use std::{
 
 use eframe::egui::{self, Color32, RichText};
 
-use super::theme;
+use super::{icons::Icon, theme};
 use crate::{Result, i18n::Language, repository::Summary, watch::StopToken};
 
 type Key = (String, String);
@@ -54,7 +54,7 @@ impl Panel {
         ui.horizontal(|ui| {
             ui.strong(language.text("Repository"));
             if ui
-                .small_button(language.text("Refresh information"))
+                .add(Icon::Refresh.button(language.text("Refresh information")))
                 .clicked()
             {
                 self.refresh();

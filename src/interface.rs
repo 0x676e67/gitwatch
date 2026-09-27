@@ -59,6 +59,12 @@ pub(crate) enum Command {
     Refresh,
     Save(Draft),
     Remove(Uuid),
+    #[cfg(feature = "desktop")]
+    Reorder {
+        id: Uuid,
+        target: Uuid,
+        after: bool,
+    },
     Start(Uuid),
     Stop(Uuid),
     Once(Uuid),
@@ -427,6 +433,19 @@ impl Worker {
             .map(Draft::workspace)
             .collect();
         drafts.extend(self.tasks()?);
+        let positions: HashMap<_, _> = Preferences::load(self.store.directory())?
+            .task_order
+            .into_iter()
+            .enumerate()
+            .map(|(position, id)| (id, position))
+            .collect();
+        drafts.sort_by_key(|draft| {
+            draft
+                .id
+                .and_then(|id| positions.get(&id))
+                .copied()
+                .unwrap_or(usize::MAX)
+        });
         Ok(drafts)
     }
 
@@ -497,6 +516,31 @@ impl Worker {
                 let _ = self.sender.send(Message::StartInTray(enabled));
             }
             Command::Refresh => self.refresh()?,
+            #[cfg(feature = "desktop")]
+            Command::Reorder { id, target, after } => {
+                let mut order: Vec<_> = self
+                    .drafts()?
+                    .into_iter()
+                    .filter_map(|draft| draft.id)
+                    .collect();
+                let from = order
+                    .iter()
+                    .position(|item| *item == id)
+                    .context("Task no longer exists")?;
+                ensure!(order.contains(&target), "Task no longer exists");
+                if id != target {
+                    order.remove(from);
+                    let to = order
+                        .iter()
+                        .position(|item| *item == target)
+                        .context("Task no longer exists")?;
+                    order.insert(to + usize::from(after), id);
+                    Preferences::update(self.store.directory(), |preferences| {
+                        preferences.task_order = order
+                    })?;
+                }
+                self.refresh()?;
+            }
             Command::Save(mut draft) => {
                 ensure!(!draft.name.trim().is_empty(), "Enter a task name");
                 ensure!(!draft.path.trim().is_empty(), "Enter a local path");
@@ -506,7 +550,12 @@ impl Worker {
                         "Stop the task before editing it"
                     );
                 }
-                if draft.kind == Kind::Workspace {
+                let mut order: Vec<_> = self
+                    .drafts()?
+                    .into_iter()
+                    .filter_map(|draft| draft.id)
+                    .collect();
+                let id = if draft.kind == Kind::Workspace {
                     let existing = self
                         .store
                         .workspaces()?
@@ -525,11 +574,13 @@ impl Worker {
                         builder = builder.branch(draft.branch.trim());
                     }
                     let workspace = builder.paused(true).build()?;
+                    let id = workspace.id();
                     if draft.id.is_some() {
                         self.store.update(workspace)?;
                     } else {
                         self.store.register(workspace)?;
                     }
+                    id
                 } else {
                     match draft.kind {
                         Kind::Watch => {
@@ -544,13 +595,23 @@ impl Worker {
                     let _lock = Lock::acquire(&self.store.directory().join("tasks.lock"))?;
                     let mut tasks = self.tasks()?;
                     let id = *draft.id.get_or_insert_with(Uuid::new_v4);
-                    tasks.retain(|t| t.id != Some(id));
-                    tasks.push(draft);
+                    if let Some(existing) = tasks.iter_mut().find(|task| task.id == Some(id)) {
+                        *existing = draft;
+                    } else {
+                        tasks.push(draft);
+                    }
                     paths::atomic_write(
                         &self.store.directory().join("tasks.json"),
                         &serde_json::to_vec_pretty(&tasks)?,
                     )?;
+                    id
+                };
+                if !order.contains(&id) {
+                    order.push(id);
                 }
+                Preferences::update(self.store.directory(), |preferences| {
+                    preferences.task_order = order
+                })?;
                 self.refresh()?;
             }
             Command::Remove(id) => {
@@ -570,6 +631,9 @@ impl Worker {
                         &serde_json::to_vec_pretty(&tasks)?,
                     )?;
                 }
+                Preferences::update(self.store.directory(), |preferences| {
+                    preferences.task_order.retain(|item| *item != id)
+                })?;
                 self.refresh()?;
             }
             Command::Start(id) => {
@@ -910,6 +974,114 @@ mod tests {
         model.send(command);
         wait(model);
         assert!(model.error.is_none(), "{:?}", model.error);
+    }
+
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn task_order_survives_edits_moves_new_tasks_and_restarts() {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path().join("data");
+        let source = temp.path().join("source");
+        fs::create_dir(&source).unwrap();
+        let mut model = Model::new(Some(data.clone()));
+        wait(&mut model);
+        for (name, kind) in [("A", Kind::Pull), ("B", Kind::Workspace), ("C", Kind::Pull)] {
+            command(
+                &mut model,
+                Command::Save(Draft {
+                    name: name.into(),
+                    kind,
+                    path: source.to_string_lossy().into_owned(),
+                    ..Draft::default()
+                }),
+            );
+        }
+        let ids = |model: &Model| {
+            model
+                .rows
+                .iter()
+                .map(|row| row.draft.id.unwrap())
+                .collect::<Vec<_>>()
+        };
+        let original = ids(&model);
+        assert_eq!(
+            model
+                .rows
+                .iter()
+                .map(|row| row.draft.name.as_str())
+                .collect::<Vec<_>>(),
+            ["A", "B", "C"]
+        );
+        let mut draft = model.rows[0].draft.clone();
+        draft.name = "Edited A".into();
+        command(&mut model, Command::Save(draft));
+        assert_eq!(ids(&model), original);
+        Preferences::update(&data, |preferences| preferences.task_order.clear()).unwrap();
+        command(&mut model, Command::Refresh);
+        let legacy = ids(&model);
+        assert_eq!(legacy, [original[1], original[0], original[2]]);
+        let draft = model.rows[1].draft.clone();
+        command(&mut model, Command::Save(draft));
+        assert_eq!(ids(&model), legacy);
+        command(&mut model, Command::Start(original[2]));
+        command(
+            &mut model,
+            Command::Reorder {
+                id: original[2],
+                target: original[1],
+                after: false,
+            },
+        );
+        command(
+            &mut model,
+            Command::Reorder {
+                id: original[0],
+                target: original[2],
+                after: true,
+            },
+        );
+        let expected = vec![original[2], original[0], original[1]];
+        assert_eq!(ids(&model), expected);
+        assert!(model.rows[0].running);
+        command(&mut model, Command::Language(Language::Chinese));
+        drop(model);
+        let mut model = Model::new(Some(data.clone()));
+        wait(&mut model);
+        assert_eq!(ids(&model), expected);
+        assert!(model.rows[0].running);
+        let mut draft = model.rows[1].draft.clone();
+        draft.name = "Edited again".into();
+        command(&mut model, Command::Save(draft));
+        command(&mut model, Command::Refresh);
+        assert_eq!(ids(&model), expected);
+        command(
+            &mut model,
+            Command::Save(Draft {
+                name: "D".into(),
+                path: source.to_string_lossy().into_owned(),
+                ..Draft::default()
+            }),
+        );
+        assert_eq!(&ids(&model)[..3], &expected);
+        let added = model.rows[3].draft.id.unwrap();
+        command(&mut model, Command::Remove(original[0]));
+        assert_eq!(ids(&model), [original[2], original[1], added]);
+        model.send(Command::Reorder {
+            id: Uuid::new_v4(),
+            target: added,
+            after: false,
+        });
+        wait(&mut model);
+        assert!(model.error.is_some());
+        assert_eq!(
+            Preferences::load(&data).unwrap().task_order,
+            [original[2], original[1], added]
+        );
+        command(&mut model, Command::Stop(original[2]));
+        drop(model);
+        let mut model = Model::new(Some(data));
+        wait(&mut model);
+        assert_eq!(ids(&model), [original[2], original[1], added]);
     }
 
     #[test]

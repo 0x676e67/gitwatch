@@ -57,6 +57,8 @@ The desktop uses one built-in dark theme with consistent spacing and task status
 
 The task list stays visible while you add tasks or change backup settings. Select a task to return to its details. Running pull tasks show the time remaining until their next attempt. Ordinary failures retry at that interval; an unfinished merge or rebase stops the task for you to handle.
 
+Drag the six-dot handle on a task card to change its position. The order stays the same after editing tasks or restarting the app, and new tasks appear at the end. Drag near the top or bottom of the list to scroll, or press Escape to cancel.
+
 Task details include a repository link, local branches and tags, commit and contributor counts, and the latest commit. History counts cover the local HEAD, including merges; shallow clones show a warning. Git counts text lines in committed files at the same local HEAD, including comments and blank lines. The breakdown groups files by extension; it does not parse programming languages. Binary files are counted separately. Information refreshes in the background while the details are open, or when you click **Refresh information**. Repository information comes from local Git commands and does not make network requests. These desktop additions are available in the source build and the next release.
 
 ## Watch an existing repository
