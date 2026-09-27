@@ -384,10 +384,14 @@ impl Model {
                     self.pull_schedule.insert(id, next);
                 }
                 Message::Status(id, text) => {
-                    if let Some(row) = self.rows.iter_mut().find(|r| r.draft.id == Some(id)) {
-                        row.status = text.clone();
-                    }
-                    self.log(Text::format("{0}: {1}", [Text::value(id), text]));
+                    let name =
+                        if let Some(row) = self.rows.iter_mut().find(|r| r.draft.id == Some(id)) {
+                            row.status = text.clone();
+                            Text::value(&row.draft.name)
+                        } else {
+                            Text::value(id)
+                        };
+                    self.log(Text::format("{0}: {1}", [name, text]));
                 }
                 Message::Done(result) => {
                     self.busy = false;
@@ -442,6 +446,8 @@ impl Worker {
     }
 
     fn resume(&mut self) -> Result<()> {
+        // Names must be available even when a task fails before its worker starts.
+        self.refresh()?;
         for id in Preferences::load(self.store.directory())?.started_tasks {
             if let Err(error) = self.command(Command::Start(id)) {
                 let _ = self
@@ -825,7 +831,7 @@ impl Worker {
                 };
                 self.states.insert(id, text.clone());
                 self.refresh()?;
-                return Ok(text);
+                return Ok(Text::format("{0}: {1}", [Text::value(&draft.name), text]));
             }
             Command::Push(id) => {
                 self.store.push(id)?;
@@ -1038,6 +1044,98 @@ mod tests {
     }
 
     #[test]
+    fn activity_identifies_tasks_without_translating_their_names() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut model = Model::new(Some(temp.path().join("data")));
+        wait(&mut model);
+        model.logs.clear();
+        let (sender, receiver) = mpsc::channel();
+        model.receiver = receiver;
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+        let rows = |name: &str| {
+            [(first, name), (second, "quic")]
+                .into_iter()
+                .map(|(id, name)| Row {
+                    draft: Draft {
+                        id: Some(id),
+                        name: name.into(),
+                        ..Draft::default()
+                    },
+                    running: true,
+                    status: "Running".into(),
+                })
+                .collect()
+        };
+        sender.send(Message::Rows(rows("Running"))).unwrap();
+        for id in [first, second] {
+            sender
+                .send(Message::Status(id, "Changes pending".into()))
+                .unwrap();
+        }
+        model.poll();
+        assert_eq!(
+            model.logs[0].render(Language::English),
+            "Running: Changes pending"
+        );
+        assert_eq!(
+            model.logs[0].render(Language::Chinese),
+            "Running：有更改待处理"
+        );
+        assert_eq!(
+            model.logs[1].render(Language::English),
+            "quic: Changes pending"
+        );
+        assert_eq!(
+            model.rows[0].status.render(Language::English),
+            "Changes pending"
+        );
+        sender.send(Message::Rows(rows("Renamed"))).unwrap();
+        sender
+            .send(Message::Status(first, "Stopped".into()))
+            .unwrap();
+        let unknown = Uuid::new_v4();
+        sender
+            .send(Message::Status(unknown, "Stopped".into()))
+            .unwrap();
+        model.poll();
+        assert_eq!(
+            model.logs[0].render(Language::English),
+            "Running: Changes pending"
+        );
+        assert_eq!(model.logs[2].render(Language::English), "Renamed: Stopped");
+        assert_eq!(
+            model.logs[3].render(Language::English),
+            format!("{unknown}: Stopped")
+        );
+        drop(model);
+
+        let source = temp.path().join("source");
+        fs::create_dir(&source).unwrap();
+        let data = temp.path().join("data");
+        let store = BackupStore::open(&data).unwrap();
+        let workspace = Workspace::builder("Missing source", &source)
+            .include("notes.md")
+            .build()
+            .unwrap();
+        let id = workspace.id();
+        store.register(workspace).unwrap();
+        Preferences::update(&data, |preferences| {
+            preferences.started_tasks.insert(id);
+        })
+        .unwrap();
+        fs::remove_dir(&source).unwrap();
+        let mut model = Model::new(Some(data));
+        wait(&mut model);
+        assert!(
+            model.logs[0]
+                .render(Language::English)
+                .starts_with("Missing source: ")
+        );
+        assert!(!model.rows[0].running);
+    }
+
+    #[test]
     fn task_names_are_unique_across_kinds_and_edits() {
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("source");
@@ -1162,6 +1260,14 @@ mod tests {
             );
             let id = model.rows[0].draft.id.unwrap();
             command(&mut model, Command::Once(id));
+            assert!(
+                model
+                    .logs
+                    .back()
+                    .unwrap()
+                    .render(Language::English)
+                    .starts_with("Manual task: ")
+            );
             assert!(!model.rows[0].running);
             assert!(Preferences::load(&data).unwrap().started_tasks.is_empty());
             command(&mut model, Command::Start(id));
