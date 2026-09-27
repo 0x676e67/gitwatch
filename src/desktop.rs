@@ -631,6 +631,16 @@ mod tests {
 
     use super::*;
 
+    fn contrast(foreground: Color32, background: Color32) -> f32 {
+        let luminance = |color: Color32| {
+            let linear = egui::Rgba::from(color);
+            0.2126 * linear.r() + 0.7152 * linear.g() + 0.0722 * linear.b()
+        };
+        let foreground = luminance(foreground);
+        let background = luminance(background);
+        (foreground.max(background) + 0.05) / (foreground.min(background) + 0.05)
+    }
+
     fn settle(app: &mut Desktop) {
         let deadline = Instant::now() + Duration::from_secs(10);
         while app.model.busy && Instant::now() < deadline {
@@ -780,6 +790,18 @@ mod tests {
                 settle(&mut app);
                 let output = render(&mut app, &context, vec![]);
                 assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::epaint::Shape::Text(text) if text.galley.job.text == "Desktop notes")), "Task must remain visible in {action}");
+                for shape in &output.shapes {
+                    if let egui::Shape::Text(text) = &shape.shape
+                        && text.galley.job.text == "Desktop notes"
+                    {
+                        for section in &text.galley.job.sections {
+                            assert!(
+                                contrast(section.format.color, theme::SELECTED) >= 4.5,
+                                "Task text must remain readable in {action}"
+                            );
+                        }
+                    }
+                }
                 assert_eq!(app.model.rows[0].draft.id, selected);
             }
             click(&mut app, &context, "Desktop notes");
