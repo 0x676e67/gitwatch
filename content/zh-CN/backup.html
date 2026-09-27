@@ -16,7 +16,7 @@ gitwatch workspace watch --all</code></pre>
 <pre><code>gitwatch workspace add ./project --name agents --include .agents --follow-links
 gitwatch workspace edit agents --follow-links true
 gitwatch workspace edit agents --follow-links false</code></pre>
-<p>此选项默认关闭，只保存在当前任务的本地配置中，导入备份不会自动启用。排除规则使用项目中可见的路径；定期内容检查会发现外部目标的变化。断开的链接、循环链接和指向备份数据的链接会报错，已有备份保持不变；凭据与缓存排除规则仍然生效。</p>
+<p>此选项默认关闭，只保存在当前任务的本地配置中，导入备份不会自动启用。排除规则使用项目中可见的路径；定期内容检查会发现外部目标的变化。链接目标不存在时会跳过，该路径以前保存的文件仍保留在备份中。循环链接、无法读取的目标和指向备份数据的链接会报错，已有备份保持不变；凭据与缓存排除规则仍然生效。</p>
 <p>恢复预览仍会拒绝经过符号链接的目标路径。需要恢复这些内容时，可以先把备份绑定到另一个普通目录，再预览并确认恢复；恢复后得到普通文件和目录，不会通过链接改写原目标。</p>
 <h2 id="remote">配置远程备份仓库</h2>
 <pre><code>gitwatch workspace remote https://github.com/you/private-backup.git --auto-push

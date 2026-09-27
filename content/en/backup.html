@@ -16,7 +16,7 @@ gitwatch workspace watch --all</code></pre>
 <pre><code>gitwatch workspace add ./project --name agents --include .agents --follow-links
 gitwatch workspace edit agents --follow-links true
 gitwatch workspace edit agents --follow-links false</code></pre>
-<p>The option is off by default and stays local to this task; importing a backup does not enable it. Exclusion patterns use the paths visible in your project. Periodic content checks detect changes in external targets. Broken links, cycles and links into backup storage produce an error without replacing the last backup; credential and cache exclusions still apply.</p>
+<p>The option is off by default and stays local to this task; importing a backup does not enable it. Exclusion patterns use the paths visible in your project. Periodic content checks detect changes in external targets. Missing link targets are skipped, and their previously saved files stay in the backup. Cycles, unreadable targets and links into backup storage produce an error without replacing the last backup; credential and cache exclusions still apply.</p>
 <p>Restore previews continue to reject linked destinations. To recover these files without writing through a link, bind the backup to another ordinary directory and preview the restore there. The restored files and directories are ordinary copies.</p>
 <h2 id="remote">Use a remote backup repository</h2>
 <pre><code>gitwatch workspace remote https://github.com/you/private-backup.git --auto-push
