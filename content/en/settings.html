@@ -10,6 +10,10 @@ gitwatch --lang zh-CN desktop</code></pre>
 <pre><code>gitwatch --data-dir ./gitwatch-data desktop</code></pre>
 <p>You can also set <code>GITWATCH_DATA_DIR</code>. Keep the store outside the projects you are backing up. Only one desktop or TUI instance can use a data directory at a time. Quit gitwatch before copying the entire store for a backup; keep the Git repository and configuration together.</p>
 <p>For scripts, <code>--json</code> produces structured CLI output with <code>schema_version: 1</code>.</p>
+<h2 id="workspaces">Workspace data and shared settings</h2>
+<p>In the next release, the desktop and TUI can keep <a href="desktop.html#workspaces">separate workspaces</a> inside one data directory. The default workspace uses the existing store in place. Custom workspaces keep their data under <code>spaces/</code>; their names and the current selection are saved in <code>spaces.json</code>.</p>
+<p>Language, start-in-tray preferences and update notices apply to the whole app. Tasks, their order, startup state, pull deadlines, backup history and backup remote belong to each workspace. Switching workspaces leaves started tasks running.</p>
+<p>To back up or move the application data, quit gitwatch and copy the entire data directory, including <code>spaces/</code> and <code>spaces.json</code>. Removing an empty workspace from the interface leaves its files in place.</p>
 <h2 id="update">Update an official release</h2>
 <pre><code>gitwatch self update --check
 gitwatch self update

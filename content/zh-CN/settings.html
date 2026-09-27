@@ -10,6 +10,10 @@ gitwatch --lang zh-CN desktop</code></pre>
 <pre><code>gitwatch --data-dir ./gitwatch-data desktop</code></pre>
 <p>也可以设置 <code>GITWATCH_DATA_DIR</code>。数据目录应放在被备份项目之外。同一数据目录同时只能供一个桌面或 TUI 实例使用。完整备份本地数据前，请先退出 gitwatch，并把 Git 仓库与配置一起保留。</p>
 <p>脚本可以使用 <code>--json</code> 获取结构化 CLI 输出，当前 <code>schema_version</code> 为 <code>1</code>。</p>
+<h2 id="workspaces">工作空间数据与共享设置</h2>
+<p>下一次发布的桌面应用和 TUI 支持在同一数据目录中保存<a href="desktop.html#workspaces">多个工作空间</a>。默认工作空间直接使用原有数据，不搬移文件；自定义工作空间的数据保存在 <code>spaces/</code> 中，名称和当前选择记录在 <code>spaces.json</code> 中。</p>
+<p>语言、启动时最小化到托盘和新版本提示属于整个应用。任务、任务顺序、启动状态、拉取截止时间、备份历史和备份远程各自属于对应工作空间。切换工作空间不会停止已启动的任务。</p>
+<p>备份或搬移应用数据时，请先退出 gitwatch，再复制整个数据目录，包含 <code>spaces/</code> 和 <code>spaces.json</code>。从界面移除空工作空间后，它的文件仍会保留。</p>
 <h2 id="update">更新官方发布版</h2>
 <pre><code>gitwatch self update --check
 gitwatch self update

@@ -5,6 +5,12 @@
 <h2 id="keys">常用快捷键</h2>
 <div class="table-wrap"><table><thead><tr><th>按键</th><th>操作</th></tr></thead><tbody><tr><td><kbd>n</kbd></td><td>添加任务</td></tr><tr><td><kbd>F2</kbd></td><td>在表单中选择任务模式</td></tr><tr><td><kbd>Tab</kbd> / <kbd>Ctrl+S</kbd></td><td>切换字段 / 保存</td></tr><tr><td><kbd>s</kbd> / <kbd>b</kbd></td><td>启动或停止 / 执行一次</td></tr><tr><td><kbd>h</kbd></td><td>打开备份历史</td></tr><tr><td><kbd>v</kbd> / <kbd>R</kbd></td><td>预览恢复 / 打开确认界面</td></tr><tr><td><kbd>F3</kbd></td><td>切换并保存语言选择</td></tr><tr><td><kbd>q</kbd> / <kbd>Ctrl+C</kbd></td><td>退出</td></tr></tbody></table></div>
 <p>快捷键取决于当前页面，底部提示会列出可用操作。在拉取表单的策略字段上，可以按左右方向键或空格切换。</p>
+<h2 id="workspaces">切换与管理工作空间</h2>
+<div class="callout">这些操作将包含在下一次发布中，v0.2.0 尚不支持。</div>
+<p>按 <kbd>F4</kbd> 打开工作空间列表，用方向键选择，按 <kbd>Enter</kbd> 切换。星号表示当前工作空间，其他工作空间中已经启动的任务仍会继续运行。</p>
+<div class="table-wrap"><table><thead><tr><th>工作空间页面中的按键</th><th>操作</th></tr></thead><tbody><tr><td><kbd>n</kbd></td><td>新建工作空间，填写名称和必填的备份远程地址</td></tr><tr><td><kbd>Tab</kbd> / <kbd>Ctrl+S</kbd></td><td>切换字段 / 保存</td></tr><tr><td><kbd>e</kbd></td><td>重命名当前工作空间</td></tr><tr><td><kbd>x</kbd></td><td>移除没有任务的当前工作空间，保留磁盘数据</td></tr><tr><td><kbd>Esc</kbd></td><td>取消表单或关闭工作空间页面</td></tr></tbody></table></div>
+<p>创建后，从列表中选择新工作空间，再添加任务。重命名和移除操作针对当前工作空间，而不是方向键高亮的行。默认工作空间始终存在，保存着原来的任务。</p>
+<p>在自定义工作空间的任务页面按 <kbd>u</kbd>，可以编辑备份远程地址，地址不能为空。表单中按 <kbd>Ctrl+P</kbd> 切换自动上传，按 <kbd>Enter</kbd> 保存。默认工作空间的备份远程不能在界面中更改。完整规则见<a href="desktop.html#workspaces">工作空间说明</a>。</p>
 <h2 id="exit">停止与恢复运行</h2>
 <p>退出时会等待当前操作结束，再停止执行器。已启动任务会被记住，下次打开 TUI 或桌面应用时恢复。想让任务持续保持停止状态，请使用任务的停止操作。</p>
 <p>显示中文时，需要选择包含中文字形的终端字体。TUI 使用终端字体，桌面应用则内置了中文字体。</p>
