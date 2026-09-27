@@ -1,6 +1,6 @@
 # gitwatch
 
-[Documentation](https://0x676e67.github.io/gitwatch/en/index.html) · [中文文档](https://0x676e67.github.io/gitwatch/zh-CN/index.html) · [Releases](https://github.com/0x676e67/gitwatch/releases)
+[Documentation](https://gitwatch.dpdns.org/en/index.html) · [中文文档](https://gitwatch.dpdns.org/zh-CN/index.html) · [Releases](https://github.com/0x676e67/gitwatch/releases)
 
 gitwatch watches your files and commits changes to Git as you work. It can also back up selected files to a separate repository or pull updates on a schedule.
 
@@ -16,7 +16,7 @@ cargo install gitwatch --locked --features tui      # CLI + TUI
 cargo install gitwatch --locked --all-features      # CLI + TUI + desktop
 ```
 
-Prebuilt archives are available on [GitHub Releases](https://github.com/0x676e67/gitwatch/releases). The latest release is v0.1.0; the documentation describes `main`, including features that have not been released yet. See [installation](https://0x676e67.github.io/gitwatch/en/install.html) for source builds and Linux desktop dependencies.
+Prebuilt archives are available on [GitHub Releases](https://github.com/0x676e67/gitwatch/releases). The latest release is v0.1.0; the documentation describes `main`, including features that have not been released yet. See [installation](https://gitwatch.dpdns.org/en/install.html) for source builds and Linux desktop dependencies.
 
 ## Quick start
 
@@ -39,10 +39,10 @@ Prefer an interactive interface? Run `gitwatch tui` or `gitwatch desktop` after 
 
 ## Documentation
 
-- [Desktop app](https://0x676e67.github.io/gitwatch/en/desktop.html) and [terminal UI](https://0x676e67.github.io/gitwatch/en/tui.html)
-- [Watching repositories](https://0x676e67.github.io/gitwatch/en/watch.html), [workspace backups and restore](https://0x676e67.github.io/gitwatch/en/backup.html), [scheduled pulls](https://0x676e67.github.io/gitwatch/en/pull.html)
-- [Language, local data and updates](https://0x676e67.github.io/gitwatch/en/settings.html)
-- [Building and contributing](https://0x676e67.github.io/gitwatch/en/development.html)
+- [Desktop app](https://gitwatch.dpdns.org/en/desktop.html) and [terminal UI](https://gitwatch.dpdns.org/en/tui.html)
+- [Watching repositories](https://gitwatch.dpdns.org/en/watch.html), [workspace backups and restore](https://gitwatch.dpdns.org/en/backup.html), [scheduled pulls](https://gitwatch.dpdns.org/en/pull.html)
+- [Language, local data and updates](https://gitwatch.dpdns.org/en/settings.html)
+- [Building and contributing](https://gitwatch.dpdns.org/en/development.html)
 
 ## License
 
