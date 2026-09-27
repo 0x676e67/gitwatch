@@ -107,7 +107,7 @@ impl Summary {
             // Uppercase author placeholders honor .mailmap: https://git-scm.com/docs/pretty-formats
             let log = query(
                 &summary.root,
-                &["log", "-1", "--format=%H%x00%aN%x00%aI%x00%s", &head, "--"],
+                &["log", "-1", "--format=%H%x00%aN%x00%cI%x00%s", &head, "--"],
                 stop,
             )?;
             let fields: Vec<_> = log.splitn(4, '\0').collect();
@@ -315,7 +315,13 @@ mod tests {
         fs::write(root.join("main.rs"), "// note\nfn main() {}\n\n").unwrap();
         fs::write(root.join("binary.rs"), b"\0binary").unwrap();
         git(root, &["add", "."]);
-        git(root, &["commit", "-m", "First"]);
+        let commit = crate::test_git::command(root)
+            .args(["commit", "-m", "First"])
+            .env("GIT_AUTHOR_DATE", "2026-09-27T05:52:34+08:00")
+            .env("GIT_COMMITTER_DATE", "2026-09-27T18:38:08+08:00")
+            .output()
+            .unwrap();
+        assert!(commit.status.success());
         git(
             root,
             &[
@@ -342,7 +348,9 @@ mod tests {
         assert_eq!(summary.skipped, 1);
         assert_eq!(summary.contributors.len(), 1);
         assert_eq!(summary.contributors[0].1, 1);
-        assert_eq!(summary.latest.unwrap().subject, "First");
+        let latest = summary.latest.unwrap();
+        assert_eq!(latest.subject, "First");
+        assert_eq!(latest.time, "2026-09-27T18:38:08+08:00");
         assert_eq!(
             summary.remote.unwrap().url,
             "https://github.com/example/repository"
