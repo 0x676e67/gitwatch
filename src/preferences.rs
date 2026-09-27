@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::{collections::BTreeSet, fs, path::Path};
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -11,6 +11,7 @@ use crate::{Result, git::Lock, i18n::Language, paths};
 pub(crate) struct Preferences {
     pub language: Option<Language>,
     pub start_in_tray: bool,
+    pub started_tasks: BTreeSet<uuid::Uuid>,
 }
 
 impl Preferences {
@@ -43,11 +44,23 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         fs::write(temp.path().join("preferences.json"), r#"{"language":"en"}"#).unwrap();
         assert!(!Preferences::load(temp.path()).unwrap().start_in_tray);
+        assert!(
+            Preferences::load(temp.path())
+                .unwrap()
+                .started_tasks
+                .is_empty()
+        );
+        let id = uuid::Uuid::new_v4();
+        Preferences::update(temp.path(), |value| {
+            value.started_tasks.insert(id);
+        })
+        .unwrap();
         Preferences::update(temp.path(), |value| value.start_in_tray = true).unwrap();
         Language::Chinese.save(temp.path()).unwrap();
         let preferences = Preferences::load(temp.path()).unwrap();
         assert!(preferences.start_in_tray);
         assert_eq!(preferences.language, Some(Language::Chinese));
+        assert!(preferences.started_tasks.contains(&id));
         Preferences::update(temp.path(), |value| value.start_in_tray = false).unwrap();
         assert_eq!(
             Preferences::load(temp.path()).unwrap().language,

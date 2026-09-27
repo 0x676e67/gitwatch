@@ -202,7 +202,7 @@ impl Desktop {
             if let Some(error) = &self.tray_error { ui.colored_label(Color32::YELLOW, language.text("System tray unavailable; closing this window will exit.")).on_hover_text(error); }
                 ui.columns(2, |columns| {
                     columns[0].heading(language.text("Tasks"));
-                    columns[0].label(language.text("Nothing runs until you start a task."));
+                    columns[0].label(language.text("Started tasks resume when you reopen the app."));
                     egui::ScrollArea::vertical().id_salt("tasks").max_height((columns[0].available_height() - 100.0).max(100.0)).show(&mut columns[0], |ui| {
                         if self.model.rows.is_empty() { ui.add_space(24.0); ui.label(language.text("Add a workspace backup, watch a Git repository, or schedule repository updates.")); }
                         for row in &self.model.rows {

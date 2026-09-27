@@ -30,7 +30,7 @@ gitwatch desktop
 
 On Linux, building the desktop app also needs the development packages for X11/Wayland, OpenGL and xkbcommon. See the Ubuntu package list in the [CI workflow](.github/workflows/ci.yml). The CLI build doesn't need these desktop dependencies.
 
-In the desktop source build, closing or minimizing the window keeps the app and its running tasks in the system tray. Click the tray icon to reopen the window, or right-click it and choose **Quit** to stop tasks and exit. Under **Settings**, enable **Start minimized to tray** to hide the window on future launches. This setting is off by default and does not start tasks automatically.
+In the desktop source build, closing or minimizing the window keeps the app and its running tasks in the system tray. Click the tray icon to reopen the window, or right-click it and choose **Quit** to stop tasks and exit. Under **Settings**, enable **Start minimized to tray** to hide the window on future launches. This setting is off by default; previously started tasks resume whether the window opens normally or in the tray.
 
 On Linux, the tray uses D-Bus StatusNotifierItem without GTK or AppIndicator libraries. Your desktop needs a compatible tray host; GNOME may need a tray extension. If a tray cannot be created, gitwatch shows the window and closing it exits normally. Tray support will be included in the next release; v0.1.0 does not include it.
 
@@ -148,6 +148,8 @@ If a merge or rebase leaves an unfinished operation, the task stops and records 
 ## Interactive interfaces
 
 If you'd rather manage tasks interactively, use `gitwatch tui` or `gitwatch desktop`. Both use the same workspace store as the CLI. Adding a task saves its settings; start it when you're ready. Closing the TUI stops its tasks after any current operation finishes. The desktop app keeps running in the tray when you close its window; choose Quit in the tray menu to stop it. No system service is installed.
+
+The desktop and TUI remember which tasks you started and resume them when you reopen either interface. Click **Stop** to keep a task stopped across restarts. Running a task once does not enable automatic startup, and tasks that stop with a fatal error stay stopped. Scheduled pulls run immediately on reopening, then use their configured interval. Only one task interface can use a data directory at a time.
 
 In the desktop app, you can choose files and folders, configure tasks, import workspace branches and browse backup history. You can also review file changes before confirming a restore.
 

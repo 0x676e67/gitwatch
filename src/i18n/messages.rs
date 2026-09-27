@@ -301,13 +301,13 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     ("Working…", "处理中…"),
     ("Ready", "就绪"),
     (
-        "Ready. Tasks start only when requested.",
-        "已就绪。任务需要手动启动。",
+        "Ready. Previously started tasks resume automatically.",
+        "已就绪。之前启动的任务会自动恢复。",
     ),
     ("Completed", "已完成"),
     (
-        "Nothing runs until you start a task.",
-        "任务会在你点击启动后运行。",
+        "Started tasks resume when you reopen the app.",
+        "已启动的任务会在重新打开程序时恢复。",
     ),
     (
         "Add a workspace backup, watch a Git repository, or schedule repository updates.",
@@ -663,6 +663,11 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     ("Background controller is unavailable", "后台控制器不可用"),
     ("Task no longer exists", "任务已不存在"),
     ("Enter a task name", "请输入任务名称"),
+    ("Cannot save task startup state", "无法保存任务启动状态"),
+    (
+        "Another task interface is using this data directory",
+        "另一个任务界面正在使用此数据目录",
+    ),
     ("Enter a local path", "请输入本地路径"),
     ("Task is already running", "任务已在运行"),
     (
