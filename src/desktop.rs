@@ -351,6 +351,7 @@ impl Desktop {
             panel.exact_size(36.0)
         };
         panel.show(ui, |ui| {
+            let mut follow_latest = false;
             ui.horizontal_wrapped(|ui| {
                 if ui
                     .add(
@@ -362,7 +363,10 @@ impl Desktop {
                     self.activity_open = !open;
                 }
                 if open {
-                    ui.checkbox(&mut self.follow_logs, language.text("Follow latest"));
+                    follow_latest = ui
+                        .checkbox(&mut self.follow_logs, language.text("Follow latest"))
+                        .changed()
+                        && self.follow_logs;
                     if ui
                         .add_enabled(
                             !self.model.logs.is_empty(),
@@ -395,6 +399,7 @@ impl Desktop {
                     .id_salt("activity")
                     .auto_shrink([false, false])
                     .stick_to_bottom(self.follow_logs)
+                    .animated(false)
                     .show(ui, |ui| {
                         if self.model.logs.is_empty() {
                             ui.weak(language.text("No activity yet."));
@@ -407,6 +412,9 @@ impl Desktop {
                                 .wrap()
                                 .selectable(true),
                             );
+                        }
+                        if follow_latest {
+                            ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
                         }
                     });
             }
@@ -1413,6 +1421,14 @@ mod tests {
         click(&mut app, &context, "Cancel");
         click(&mut app, &context, "Follow latest");
         assert!(!app.follow_logs);
+        app.model.logs = (0..100)
+            .map(|index| crate::i18n::Text::value(format!("Log entry {index}")))
+            .collect();
+        render(&mut app, &context, vec![]);
+        click(&mut app, &context, "Follow latest");
+        let output = render(&mut app, &context, vec![]);
+        assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text)
+            if text.galley.job.text == "Log entry 99" && shape.clip_rect.contains(text.pos + text.galley.size() / 2.0))), "Enabling follow must reveal the latest log entry");
         click(&mut app, &context, "Clear logs");
         assert!(app.model.logs.is_empty());
         let output = render(&mut app, &context, vec![]);
