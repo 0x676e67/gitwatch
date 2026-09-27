@@ -1,0 +1,18 @@
+<h2 id="add">添加第一个任务</h2>
+<pre><code>gitwatch desktop</code></pre>
+<ol><li>点击<strong>添加任务</strong>，选择<strong>工作空间备份</strong>、<strong>Git 监听</strong>或<strong>定时拉取</strong>。</li><li>填写任务名称，选择源目录，再设置该模式的选项。</li><li>保存任务。新任务会出现在列表中，保持停止状态。</li><li>选中任务，点击<strong>执行一次</strong>试运行，或点击<strong>启动</strong>让它持续运行。</li></ol>
+<figure><a href="../assets/screenshots/pull-zh-CN.jpg"><img src="../assets/screenshots/pull-zh-CN.jpg" alt="定时拉取任务表单，拉取策略下拉框已展开" width="2560" height="1392" loading="lazy"></a><figcaption>添加或编辑定时拉取任务时，可以选择拉取策略。</figcaption></figure>
+<h2 id="controls">管理运行中的任务</h2>
+<p>编辑或移除任务之前，请先停止任务。</p>
+<p>添加任务或打开设置时，任务列表会一直显示。点击任意任务即可回到详情。拖动任务卡片上的六点手柄可调整顺序，结果会保存。拖到列表边缘可以滚动，按 <kbd>Escape</kbd> 可以取消拖动。</p>
+<div class="table-wrap"><table><thead><tr><th>操作</th><th>作用</th></tr></thead><tbody><tr><td>启动 / 停止</td><td>启用或停止任务。已启动的任务会在下次打开桌面应用或 TUI 时恢复运行。</td></tr><tr><td>执行一次</td><td>停止的任务执行一遍；运行中的任务请求立即执行。不改变任务的启动状态。</td></tr><tr><td>刷新</td><td>重新加载任务，并请求更新仓库信息。</td></tr><tr><td>活动记录</td><td>查看操作结果和错误。更新失败时，可以先查看这里。</td></tr></tbody></table></div>
+<p>如果操作正在执行，新请求会等它结束。多次等待中的请求会合并为一次。手动拉取完成后，会重新开始下一次拉取的倒计时。</p>
+<h2 id="history">浏览与恢复备份</h2>
+<p>选中工作空间备份任务后打开历史记录，选择版本并预览文件，核对内容后再确认恢复。单纯预览不会写入源目录。关于恢复副本和预览有效期，请参阅<a href="backup.html#restore">恢复流程</a>。</p>
+<h2 id="repository">查看仓库信息</h2>
+<p>详情面板显示仓库链接、分支、最近提交、提交数量、贡献者数量、标签和已提交文件数。点击仓库链接可以在浏览器中打开远程页面。</p>
+<p>统计使用本地 Git 的 <code>HEAD</code>，包含合并提交。浅克隆的历史可能不完整。文本行数包含注释和空行，文件类型按扩展名分类，并非语法分析得到的语言统计。二进制文件单独计数。</p>
+<p>打开详情时会在后台更新信息，也可以点击<strong>刷新信息</strong>立即请求。统计过程不进行网络请求。提交时间按本地时间显示。</p>
+<h2 id="tray">在托盘中继续运行</h2>
+<p>关闭或最小化窗口后，任务仍在托盘后台运行。点击托盘图标可重新打开窗口。要停止任务并退出应用，请右键托盘图标，选择<strong>退出</strong>。</p>
+<p>在<strong>设置</strong>中启用<strong>启动时最小化到托盘</strong>，下次启动时会隐藏窗口。此选项默认关闭，无论是否启用，已启动任务都会恢复。应用不会安装系统服务，执行任务时需要保持 gitwatch 运行。</p>

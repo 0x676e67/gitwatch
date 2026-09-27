@@ -1,0 +1,21 @@
+<h2 id="schedule">Set a schedule</h2>
+<pre><code>gitwatch pull ./upstream --url https://github.com/gitwatch/gitwatch.git --every 3600
+gitwatch pull ./existing-repo --remote origin --once
+gitwatch pull ./existing-repo --strategy merge --every 600
+gitwatch pull ./existing-repo --strategy rebase --once</code></pre>
+<p>The first command clones into an absent or empty directory, then checks for updates every hour. The second updates an existing checkout once. Use <code>--every</code> to set the interval in seconds.</p>
+<p>In the desktop app, add a <strong>Scheduled pull</strong> task and set its directory, remote, interval and strategy. Leave the clone URL empty for an existing repository. Save, then click <strong>Start</strong>. The task card shows the time until the next attempt.</p>
+<h2 id="strategy">Choose a pull strategy</h2>
+<div class="table-wrap"><table><thead><tr><th>Strategy</th><th>When history diverges</th></tr></thead><tbody><tr><td><code>ff-only</code> · default</td><td>Refuses the update. Use this when you want history changes to remain explicit.</td></tr><tr><td><code>merge</code></td><td>Creates a merge commit. Fast-forwards if no merge is needed.</td></tr><tr><td><code>rebase</code></td><td>Replays local commits on remote history, changing their IDs. Use for unpublished commits.</td></tr></tbody></table></div>
+<p>Choose the strategy from the desktop form's dropdown. In the TUI, focus the strategy field and use Left/Right or Space. Merge and rebase require your Git author identity.</p>
+<p>The selected strategy overrides Git's pull preferences for that invocation. It does not change repository or global Git configuration. Existing tasks without a saved strategy use <code>ff-only</code>.</p>
+<h2 id="failures">Handle failed pulls</h2>
+<p>gitwatch skips dirty checkouts and refuses to continue after a branch switch. It does not stash changes, reset your work or force-update the checkout. Operation results and errors appear in the interactive interface's activity log or the CLI output.</p>
+<p>Ordinary failures, including network errors, retry at the configured interval. If a merge or rebase leaves an unfinished operation, the task stops. Resolve and continue the operation using Git, or abort it with the matching command:</p>
+<pre><code>git merge --abort
+# Or, for an unfinished rebase:
+git rebase --abort</code></pre>
+<p>Run only the command that matches the operation you want to abandon. Check the repository, then restart the task.</p>
+<h2 id="resume">Restarts and manual runs</h2>
+<p>The desktop and TUI save the next run time. After restarting, they continue the remaining countdown. If it has already passed, the task runs once immediately, then resumes its normal interval.</p>
+<p><strong>Run once</strong> is available for started and stopped tasks. It never creates a second worker for the same started task. After a manual pull finishes, the countdown starts again. A fatal Git-operation error keeps the task stopped across app restarts.</p>

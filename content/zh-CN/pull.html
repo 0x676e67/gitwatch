@@ -1,0 +1,21 @@
+<h2 id="schedule">设置拉取间隔</h2>
+<pre><code>gitwatch pull ./upstream --url https://github.com/gitwatch/gitwatch.git --every 3600
+gitwatch pull ./existing-repo --remote origin --once
+gitwatch pull ./existing-repo --strategy merge --every 600
+gitwatch pull ./existing-repo --strategy rebase --once</code></pre>
+<p>第一条命令会克隆到不存在或为空的目录，然后每小时检查更新。第二条只更新一次已有仓库。<code>--every</code> 的单位是秒。</p>
+<p>在桌面应用中添加<strong>定时拉取</strong>任务，填写目录、远程、间隔和策略。已有仓库可以留空克隆地址。保存后点击<strong>启动</strong>，任务卡片会显示距离下一次尝试的剩余时间。</p>
+<h2 id="strategy">选择拉取策略</h2>
+<div class="table-wrap"><table><thead><tr><th>策略</th><th>历史分叉时的行为</th></tr></thead><tbody><tr><td><code>ff-only</code> · 默认</td><td>拒绝本次更新，适合希望自行处理历史变化的情况。</td></tr><tr><td><code>merge</code></td><td>创建合并提交。如果无需合并，则使用快进更新。</td></tr><tr><td><code>rebase</code></td><td>把本地提交重放到远程历史上，会改变提交 ID。适用于尚未分享的提交。</td></tr></tbody></table></div>
+<p>桌面应用在任务表单中提供策略下拉框。TUI 中选中策略字段后，可以按左右方向键或空格切换。合并和变基需要配置 Git 作者身份。</p>
+<p>任务策略会覆盖本次拉取的 Git 偏好，但不会修改仓库或全局 Git 配置。没有保存策略的旧任务默认使用 <code>ff-only</code>。</p>
+<h2 id="failures">处理拉取失败</h2>
+<p>工作区有未提交改动时会跳过更新，检测到分支切换后会拒绝继续。gitwatch 不会暂存改动、重置工作区或强制更新。操作结果和错误可以在交互界面的活动记录或 CLI 输出中查看。</p>
+<p>网络等普通错误会在设定间隔后重试。如果合并或变基留下未完成操作，任务会停止。请使用 Git 解决并继续，或用对应命令中止：</p>
+<pre><code>git merge --abort
+# 如果未完成的是变基，则使用：
+git rebase --abort</code></pre>
+<p>只运行与你要放弃的操作对应的命令。检查仓库状态后，再重新启动任务。</p>
+<h2 id="resume">重启与手动执行</h2>
+<p>桌面应用和 TUI 会保存下次执行时间。重启后会继续剩余倒计时；如果时间已过，会立即执行一次，然后恢复正常间隔。</p>
+<p>任务无论是否启动，都可以点击<strong>执行一次</strong>。已启动任务不会因此创建第二个执行器。手动拉取结束后会重新计时。因未完成 Git 操作而停止的任务，重启应用后也会保持停止。</p>

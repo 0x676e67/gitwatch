@@ -1,0 +1,10 @@
+<h2 id="open">打开终端界面</h2>
+<p>安装时启用 <code>--features tui</code> 或 <code>--all-features</code>，然后运行：</p>
+<pre><code>gitwatch tui</code></pre>
+<p>TUI 与桌面应用、CLI 共用任务设置和备份数据。使用同一数据目录前，需要退出另一个交互界面。</p>
+<h2 id="keys">常用快捷键</h2>
+<div class="table-wrap"><table><thead><tr><th>按键</th><th>操作</th></tr></thead><tbody><tr><td><kbd>n</kbd></td><td>添加任务</td></tr><tr><td><kbd>F2</kbd></td><td>在表单中选择任务模式</td></tr><tr><td><kbd>Tab</kbd> / <kbd>Ctrl+S</kbd></td><td>切换字段 / 保存</td></tr><tr><td><kbd>s</kbd> / <kbd>b</kbd></td><td>启动或停止 / 执行一次</td></tr><tr><td><kbd>h</kbd></td><td>打开备份历史</td></tr><tr><td><kbd>v</kbd> / <kbd>R</kbd></td><td>预览恢复 / 打开确认界面</td></tr><tr><td><kbd>F3</kbd></td><td>切换并保存语言选择</td></tr><tr><td><kbd>q</kbd> / <kbd>Ctrl+C</kbd></td><td>退出</td></tr></tbody></table></div>
+<p>快捷键取决于当前页面，底部提示会列出可用操作。在拉取表单的策略字段上，可以按左右方向键或空格切换。</p>
+<h2 id="exit">停止与恢复运行</h2>
+<p>退出时会等待当前操作结束，再停止执行器。已启动任务会被记住，下次打开 TUI 或桌面应用时恢复。想让任务持续保持停止状态，请使用任务的停止操作。</p>
+<p>显示中文时，需要选择包含中文字形的终端字体。TUI 使用终端字体，桌面应用则内置了中文字体。</p>
