@@ -25,6 +25,8 @@ pub(super) enum Icon {
     Folder,
     File,
     Grip,
+    Expand,
+    Collapse,
 }
 
 impl Icon {
@@ -59,6 +61,8 @@ impl Icon {
             painter.circle_stroke(point(x, y), radius * rect.width() / 16.0, stroke);
         };
         match self {
+            Self::Expand => path(&[[5.0, 3.0], [10.0, 8.0], [5.0, 13.0]]),
+            Self::Collapse => path(&[[3.0, 5.0], [8.0, 10.0], [13.0, 5.0]]),
             Self::Settings => {
                 for (y, x) in [(4.0, 5.0), (8.0, 11.0), (12.0, 6.0)] {
                     path(&[[2.0, y], [x - 2.0, y]]);

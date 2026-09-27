@@ -1,5 +1,19 @@
 // English source messages are stable keys. Numbered values are inserted verbatim.
 pub(super) const TEXT: &[(&str, &str)] = &[
+    (
+        "Choose History to load saved versions.",
+        "点击历史记录，查看已保存的版本。",
+    ),
+    ("Task type", "任务类型"),
+    ("Remote name", "远端名称"),
+    ("Follow latest", "跟随最新日志"),
+    ("Copy logs", "复制日志"),
+    ("Clear logs", "清空日志"),
+    ("No activity yet.", "暂无活动记录。"),
+    (
+        "Remove this task? Local files will be kept.",
+        "移除此任务？本地文件将保留。",
+    ),
     ("Follow symbolic links", "跟随符号链接"),
     (
         "Follow symbolic links (Left/Right)",
