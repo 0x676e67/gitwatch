@@ -45,7 +45,27 @@ fn protected(path: &str) -> bool {
     })
 }
 
-pub(crate) fn collect(workspace: &Workspace, data: &Path) -> Result<BTreeMap<String, FileData>> {
+pub(crate) fn selected(workspace: &Workspace, excludes: &GlobSet, path: &str) -> bool {
+    workspace.include.iter().any(|include| {
+        path == include
+            || path
+                .strip_prefix(include)
+                .is_some_and(|rest| rest.starts_with('/'))
+    }) && !excluded(excludes, path)
+}
+
+fn excluded(excludes: &GlobSet, path: &str) -> bool {
+    protected(path)
+        || std::iter::once(path)
+            .chain(path.match_indices('/').map(|(index, _)| &path[..index]))
+            .any(|path| excludes.is_match(path))
+}
+
+pub(crate) fn collect(
+    workspace: &Workspace,
+    data: &Path,
+    excludes: &GlobSet,
+) -> Result<BTreeMap<String, FileData>> {
     ensure!(
         paths::no_link(&workspace.root)?.is_dir(),
         "Source directory is unavailable; backup preserved"
@@ -53,7 +73,7 @@ pub(crate) fn collect(workspace: &Workspace, data: &Path) -> Result<BTreeMap<Str
     let mut scan = Scan {
         workspace,
         data,
-        excludes: exclusions(&workspace.exclude)?,
+        excludes,
         files: BTreeMap::new(),
         total: 0,
         ancestors: Vec::new(),
@@ -72,7 +92,7 @@ pub(crate) fn collect(workspace: &Workspace, data: &Path) -> Result<BTreeMap<Str
 struct Scan<'a> {
     workspace: &'a Workspace,
     data: &'a Path,
-    excludes: GlobSet,
+    excludes: &'a GlobSet,
     files: BTreeMap<String, FileData>,
     total: usize,
     ancestors: Vec<PathBuf>,
@@ -80,7 +100,7 @@ struct Scan<'a> {
 
 impl Scan<'_> {
     fn visit(&mut self, relative: &str) -> Result<()> {
-        if protected(relative) || self.excludes.is_match(relative) {
+        if excluded(self.excludes, relative) {
             return Ok(());
         }
         let Some(path) = self.resolve(relative)? else {

@@ -64,6 +64,123 @@ fn workspace(root: &Path, name: &str) -> Workspace {
 }
 
 #[test]
+fn selection_changes_prune_latest_backup_and_push_without_losing_history() {
+    let temp = TempDir::new().unwrap();
+    let source = temp.path().join("source");
+    project(&source, "instructions");
+    fs::create_dir_all(source.join(".agents/upstream/lib")).unwrap();
+    fs::write(source.join(".agents/upstream/lib/readme.md"), "upstream").unwrap();
+    fs::write(source.join(".agents/upstream-extra.md"), "keep").unwrap();
+    let store = BackupStore::open(temp.path().join("store")).unwrap();
+    let task = workspace(&source, "notes");
+    store.register(task.clone()).unwrap();
+    let remote = temp.path().join("remote.git");
+    git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+    git(&remote, &["config", "receive.denyNonFastForwards", "true"]);
+    store
+        .set_remote(Some(remote.to_str().unwrap()), true)
+        .unwrap();
+    let original = store.backup(task.id()).unwrap();
+    assert_eq!(original.files(), 4);
+
+    store
+        .update(
+            task.edit()
+                .include(".agents/upstream/lib/readme.md")
+                .exclude(".agents/upstream")
+                .build()
+                .unwrap(),
+        )
+        .unwrap();
+    let fingerprint = store.fingerprint(task.id()).unwrap();
+    fs::write(
+        source.join(".agents/upstream/lib/readme.md"),
+        "not selected",
+    )
+    .unwrap();
+    assert_eq!(store.fingerprint(task.id()).unwrap(), fingerprint);
+    store.push(task.id()).unwrap();
+    let report = store.status(task.id()).unwrap().unwrap();
+    assert_eq!(report.files(), 3);
+    assert!(report.retained().is_empty());
+    assert!(matches!(report.upload(), UploadState::Synced));
+    assert_eq!(
+        git(&remote, &["ls-tree", "-r", "--name-only", "notes", "files"]),
+        "files/.agents/research.md\nfiles/.agents/upstream-extra.md\nfiles/AGENTS.md"
+    );
+    assert_eq!(
+        git(
+            &remote,
+            &[
+                "show",
+                &format!("{}:files/.agents/upstream/lib/readme.md", original.commit())
+            ]
+        ),
+        "upstream"
+    );
+
+    store
+        .update(
+            task.edit()
+                .includes(vec!["AGENTS.md".into()])
+                .build()
+                .unwrap(),
+        )
+        .unwrap();
+    let narrowed = store.backup(task.id()).unwrap();
+    assert_eq!(narrowed.files(), 1);
+    assert!(narrowed.retained().is_empty());
+    assert!(matches!(narrowed.upload(), UploadState::Synced));
+    assert_eq!(
+        git(&remote, &["ls-tree", "-r", "--name-only", "notes", "files"]),
+        "files/AGENTS.md"
+    );
+
+    fs::remove_file(source.join("AGENTS.md")).unwrap();
+    assert_eq!(store.backup(task.id()).unwrap().retained(), &["AGENTS.md"]);
+    store
+        .update(
+            task.edit()
+                .includes(vec!["AGENTS.md".into()])
+                .exclude("AGENTS.md")
+                .build()
+                .unwrap(),
+        )
+        .unwrap();
+    let empty = store.backup(task.id()).unwrap();
+    assert_eq!(empty.files(), 0);
+    assert!(empty.retained().is_empty());
+    assert_eq!(
+        git(&remote, &["ls-tree", "-r", "--name-only", "notes", "files"]),
+        ""
+    );
+    git(
+        &remote,
+        &["merge-base", "--is-ancestor", original.commit(), "notes"],
+    );
+    assert_eq!(
+        git(
+            &remote,
+            &["show", &format!("{}:files/AGENTS.md", original.commit())]
+        ),
+        "instructions"
+    );
+    assert_eq!(
+        fs::read_to_string(source.join(".agents/upstream/lib/readme.md")).unwrap(),
+        "not selected"
+    );
+
+    store.update(task.edit().build().unwrap()).unwrap();
+    fs::rename(&source, temp.path().join("offline")).unwrap();
+    assert!(store.push(task.id()).is_err());
+    assert_eq!(git(&remote, &["rev-parse", "notes"]), empty.commit());
+    assert_eq!(
+        git(store.repository(), &["rev-parse", "notes"]),
+        empty.commit()
+    );
+}
+
+#[test]
 fn named_branches_rename_history_and_reject_conflicting_tasks() {
     let temp = TempDir::new().unwrap();
     let root = temp.path().join("source");
