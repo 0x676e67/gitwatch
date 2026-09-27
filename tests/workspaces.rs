@@ -254,6 +254,35 @@ fn first_upload_failures_keep_local_snapshots_for_retry() {
         store.status(task.id()).unwrap().unwrap().upload(),
         UploadState::Synced
     ));
+    store
+        .set_remote(Some(remote.to_str().unwrap()), false)
+        .unwrap();
+    let local = workspace(&root, "local");
+    store.register(local.clone()).unwrap();
+    store.backup(local.id()).unwrap();
+    store
+        .update(local.edit().name("renamed-local").build().unwrap())
+        .unwrap();
+    assert_eq!(
+        git(
+            &remote,
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/heads/renamed-local"
+            ]
+        ),
+        ""
+    );
+    assert!(matches!(
+        store.status(local.id()).unwrap().unwrap().upload(),
+        UploadState::Pending
+    ));
+    store.push(local.id()).unwrap();
+    assert_eq!(
+        git(&remote, &["show", "renamed-local:files/AGENTS.md"]),
+        "saved locally"
+    );
 }
 
 #[test]

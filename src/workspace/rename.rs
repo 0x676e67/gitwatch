@@ -73,6 +73,7 @@ impl BackupStore {
             self.git.update_ref(&pending, &commit, staged.as_deref())?;
             commit
         };
+        let mut uploaded = false;
         if remote {
             let refs = self
                 .git
@@ -96,7 +97,7 @@ impl BackupStore {
             }
             // Atomic push and explicit leases prevent partial renames and concurrent overwrites.
             // https://git-scm.com/docs/git-push#Documentation/git-push.txt---atomic
-            if next.is_none() {
+            if previous.is_some() && next.is_none() {
                 let mut args = vec![
                     "push".to_owned(),
                     "--atomic".to_owned(),
@@ -112,6 +113,7 @@ impl BackupStore {
                     "Could not rename remote branch; check connectivity, branch protection and the repository default branch"
                 )?;
             }
+            uploaded = previous.is_some() || next.is_some();
         }
         if target.is_none() {
             self.git.update_ref(&to, &commit, None)?;
@@ -122,8 +124,10 @@ impl BackupStore {
             changed: true,
             files: files.len(),
             retained: manifest.retained,
-            upload: if remote {
+            upload: if uploaded {
                 UploadState::Synced
+            } else if remote {
+                UploadState::Pending
             } else {
                 UploadState::Disabled
             },
