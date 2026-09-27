@@ -1,22 +1,11 @@
-use std::{fs, path::Path, process::Command, sync::mpsc, time::Duration};
+#[path = "support/git.rs"]
+mod support;
+
+use std::{fs, sync::mpsc, time::Duration};
 
 use gitwatch::watch::{self, Event, MonitorOptions, Repository, StopToken, WatchOptions};
+use support::git;
 use tempfile::TempDir;
-
-fn git(root: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{args:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).unwrap().trim().to_owned()
-}
 
 fn repository() -> TempDir {
     let temp = TempDir::new().unwrap();

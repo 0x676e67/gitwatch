@@ -299,15 +299,7 @@ mod tests {
     use std::fs;
 
     use super::*;
-
-    fn git(root: &Path, args: &[&str]) {
-        let mut command = git::base_command();
-        command.current_dir(root).args(args);
-        git::execute(command, None, Duration::from_secs(15))
-            .unwrap()
-            .check("fixture")
-            .unwrap();
-    }
+    use crate::test_git::git;
 
     #[test]
     fn repository_counts_local_history_and_tracked_content_without_writes() {

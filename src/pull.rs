@@ -177,7 +177,7 @@ impl PullTask {
         let git = self.git.as_ref().context("Repository was not prepared")?;
         let common = git.text(["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
         let _lock = Lock::acquire(&PathBuf::from(common).join("gitwatch.lock"))?;
-        self.blocked = has_operation(git)?;
+        self.blocked = git.operation()?.is_some();
         ensure!(
             !self.blocked,
             "Pull task stopped; resolve or abort the active Git operation, then restart the task"
@@ -218,7 +218,7 @@ impl PullTask {
                 .output(args, None, None)
                 .and_then(|output| output.check("pull"))
             {
-                self.blocked = has_operation(git)?;
+                self.blocked = git.operation()?.is_some();
                 return if self.blocked {
                     Err(error).context("Pull task stopped; resolve or abort the active Git operation, then restart the task")
                 } else {
@@ -315,7 +315,7 @@ impl PullTask {
         let root = dunce::canonicalize(lines.next().context("Missing worktree")?)?;
         ensure!(path == root, "Pull destination must be the repository root");
         let git = Git::work_tree(dir, root);
-        self.blocked = has_operation(&git)?;
+        self.blocked = git.operation()?.is_some();
         ensure!(
             !self.blocked,
             "Pull task stopped; resolve or abort the active Git operation, then restart the task"
@@ -340,23 +340,6 @@ impl PullTask {
         self.git = Some(git);
         Ok(())
     }
-}
-
-fn has_operation(git: &Git) -> Result<bool> {
-    for marker in [
-        "MERGE_HEAD",
-        "CHERRY_PICK_HEAD",
-        "REVERT_HEAD",
-        "rebase-merge",
-        "rebase-apply",
-        "sequencer",
-    ] {
-        let path = git.text(["rev-parse", "--path-format=absolute", "--git-path", marker])?;
-        if Path::new(&path).try_exists()? {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 #[cfg(test)]

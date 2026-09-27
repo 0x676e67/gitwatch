@@ -960,6 +960,7 @@ mod tests {
     use std::{fs, time::Instant};
 
     use super::*;
+    use crate::test_git::git;
 
     fn wait(model: &mut Model) {
         let deadline = Instant::now() + Duration::from_secs(15);
@@ -979,20 +980,7 @@ mod tests {
     #[test]
     fn run_once_preserves_started_state_for_all_task_kinds() {
         let temp = tempfile::tempdir().unwrap();
-        let git = |root: &std::path::Path, args: &[&str]| {
-            let output = crate::git::base_command()
-                .arg("-C")
-                .arg(root)
-                .args(args)
-                .output()
-                .unwrap();
-            assert!(
-                output.status.success(),
-                "{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            String::from_utf8(output.stdout).unwrap().trim().to_owned()
-        };
+
         for kind in [Kind::Workspace, Kind::Watch, Kind::Pull] {
             let root = temp.path().join(format!("{kind:?}"));
             let source = root.join("source");

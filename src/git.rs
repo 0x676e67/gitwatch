@@ -55,6 +55,27 @@ impl Git {
         &self.dir
     }
 
+    /// Finds an operation that must finish before automatic repository writes.
+    pub(crate) fn operation(&self) -> Result<Option<&'static str>> {
+        for marker in [
+            "MERGE_HEAD",
+            "CHERRY_PICK_HEAD",
+            "REVERT_HEAD",
+            "rebase-merge",
+            "rebase-apply",
+            "sequencer",
+            "BISECT_LOG",
+        ] {
+            // Git resolves per-worktree metadata, including linked worktrees.
+            // https://git-scm.com/docs/git-rev-parse#Documentation/git-rev-parse.txt---git-pathltpathgt
+            let path = self.text(["rev-parse", "--path-format=absolute", "--git-path", marker])?;
+            if Path::new(&path).try_exists()? {
+                return Ok(Some(marker));
+            }
+        }
+        Ok(None)
+    }
+
     pub(crate) fn run<I, S>(&self, args: I) -> Result<Vec<u8>>
     where
         I: IntoIterator<Item = S>,
@@ -361,6 +382,123 @@ pub(crate) fn init_bare(path: &Path) -> Result<Git> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        pull::{PullOptions, PullTask},
+        test_git::git,
+        watch::{Repository, WatchOptions},
+    };
+
+    #[test]
+    fn operations_protect_watch_and_pull_in_linked_worktrees() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("main");
+        fs::create_dir(&root).unwrap();
+        git(&root, &["init", "-b", "main"]);
+        git(
+            &root,
+            &[
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "Initial",
+            ],
+        );
+        let linked = temp.path().join("linked");
+        git(
+            &root,
+            &["worktree", "add", "-b", "linked", linked.to_str().unwrap()],
+        );
+        for path in [&root, &linked] {
+            let repository = Git::work_tree(
+                PathBuf::from(git(path, &["rev-parse", "--absolute-git-dir"])),
+                path.to_path_buf(),
+            );
+            let mut watch = Repository::open(path, None, WatchOptions::default()).unwrap();
+            assert_eq!(repository.operation().unwrap(), None);
+            for marker in [
+                "MERGE_HEAD",
+                "CHERRY_PICK_HEAD",
+                "REVERT_HEAD",
+                "rebase-merge",
+                "rebase-apply",
+                "sequencer",
+                "BISECT_LOG",
+            ] {
+                let file = PathBuf::from(git(
+                    path,
+                    &["rev-parse", "--path-format=absolute", "--git-path", marker],
+                ));
+                let directory = matches!(marker, "rebase-merge" | "rebase-apply" | "sequencer");
+                if directory {
+                    fs::create_dir(&file).unwrap();
+                } else {
+                    fs::write(&file, "in progress").unwrap();
+                }
+                assert_eq!(repository.operation().unwrap(), Some(marker));
+                let report = watch.commit().unwrap();
+                assert!(
+                    report
+                        .skipped()
+                        .is_some_and(|message| message.contains(marker))
+                );
+                let error = PullTask::new(PullOptions::new(path))
+                    .unwrap()
+                    .update()
+                    .unwrap_err();
+                assert!(
+                    error.to_string().contains("active Git operation"),
+                    "{marker}: {error:#}"
+                );
+                assert!(file.exists());
+                if directory {
+                    fs::remove_dir(&file).unwrap();
+                } else {
+                    fs::remove_file(&file).unwrap();
+                }
+                assert_eq!(repository.operation().unwrap(), None);
+            }
+            assert!(watch.commit().unwrap().skipped().is_none());
+        }
+    }
+
+    #[test]
+    fn test_git_ignores_inherited_repository_overrides() {
+        const CHILD: &str = "GITWATCH_TEST_GIT_ENV";
+        if std::env::var_os(CHILD).is_some() {
+            let temp = tempfile::tempdir().unwrap();
+            git(temp.path(), &["init", "-b", "main"]);
+            assert_eq!(
+                git(temp.path(), &["rev-parse", "--is-inside-work-tree"]),
+                "true"
+            );
+            return;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "git::tests::test_git_ignores_inherited_repository_overrides",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("GIT_DIR", temp.path().join("missing"))
+            .env("GIT_WORK_TREE", temp.path().join("other"))
+            .env("GIT_CONFIG_COUNT", "invalid")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     #[test]
     fn lock_contention_waits_for_the_current_operation() {

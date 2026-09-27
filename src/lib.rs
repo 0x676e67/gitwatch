@@ -11,6 +11,9 @@ mod paths;
 mod preferences;
 #[cfg(feature = "desktop")]
 mod repository;
+#[cfg(test)]
+#[path = "../tests/support/git.rs"]
+mod test_git;
 
 #[cfg(feature = "desktop")]
 pub mod desktop;
