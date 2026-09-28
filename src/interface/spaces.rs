@@ -180,6 +180,23 @@ impl Sessions {
         self.catalog.selected
     }
 
+    /// Signal every controller before waiting for any of them to finish.
+    pub fn request_shutdown(&self, model: &Model) {
+        model.request_shutdown();
+        for (_, model) in &self.inactive {
+            model.request_shutdown();
+        }
+    }
+
+    pub fn shutdown_finished(&self, model: &Model) -> bool {
+        model.shutdown_finished()
+            && self
+                .inactive
+                .iter()
+                .all(|(_, model)| model.shutdown_finished())
+            && self.pending.as_ref().is_none_or(|job| job.is_finished())
+    }
+
     pub fn list(&self) -> &[Space] {
         &self.catalog.spaces
     }
@@ -485,6 +502,45 @@ mod tests {
         model.send(command);
         wait(sessions, model);
         assert!(model.error.is_none(), "{:?}", model.error);
+    }
+
+    #[test]
+    fn shutdown_signals_all_workspaces_and_waits_for_pending_writes() {
+        let temp = tempfile::tempdir().unwrap();
+        let (mut sessions, mut model) =
+            Sessions::new(Some(temp.path().join("data")), Language::English).unwrap();
+        wait(&mut sessions, &mut model);
+        let mut inactive = Model::new(Some(temp.path().join("other")));
+        super::super::tests::wait(&mut inactive);
+        sessions.inactive.push((Uuid::new_v4(), inactive));
+        let (release, waiting) = std::sync::mpsc::channel();
+        let catalog = sessions.catalog.clone();
+        sessions.pending = Some(thread::spawn(move || {
+            waiting.recv().unwrap();
+            Ok(catalog)
+        }));
+        sessions.request_shutdown(&model);
+        let signaled = model.stop.is_stopped()
+            && sessions
+                .inactive
+                .iter()
+                .all(|(_, model)| model.stop.is_stopped());
+        let premature = sessions.shutdown_finished(&model);
+        release.send(()).unwrap();
+        model.request_shutdown();
+        for (_, model) in &sessions.inactive {
+            model.request_shutdown();
+        }
+        let until = Instant::now() + Duration::from_secs(15);
+        while !sessions.shutdown_finished(&model) && Instant::now() < until {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(signaled);
+        assert!(
+            !premature,
+            "Pending catalog write was not included in shutdown"
+        );
+        assert!(sessions.shutdown_finished(&model));
     }
 
     #[test]

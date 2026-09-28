@@ -47,6 +47,7 @@ struct Desktop {
     tray: Option<tray::Tray>,
     tray_error: Option<String>,
     hide_on_start: bool,
+    closing: bool,
     desktop_settings: bool,
     selected: Option<Uuid>,
     draft: Option<Draft>,
@@ -112,6 +113,7 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
                 tray,
                 tray_error,
                 hide_on_start,
+                closing: false,
                 desktop_settings: false,
                 selected: None,
                 draft: None,
@@ -135,13 +137,20 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
 
 impl eframe::App for Desktop {
     fn logic(&mut self, context: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Some(tray) = &mut self.tray {
+            tray.poll(context);
+            tray.set_language(self.model.language);
+        }
+        let requested = self.tray.as_ref().is_some_and(|tray| tray.quitting())
+            || (self.tray.is_none() && context.input(|input| input.viewport().close_requested()));
+        if self.shutdown(context, requested) {
+            return;
+        }
         if self.spaces.poll(&mut self.model) {
             self.clear_workspace();
             egui::DragAndDrop::clear_payload(context);
         }
         if let Some(tray) = &mut self.tray {
-            tray.poll(context);
-            tray.set_language(self.model.language);
             tray::close(context, tray.quitting());
             if std::mem::take(&mut self.hide_on_start)
                 || context.input(|input| {
@@ -160,7 +169,38 @@ impl eframe::App for Desktop {
     }
 }
 
+impl Drop for Desktop {
+    fn drop(&mut self) {
+        self.spaces.request_shutdown(&self.model);
+    }
+}
+
 impl Desktop {
+    fn shutdown(&mut self, context: &egui::Context, requested: bool) -> bool {
+        if !self.closing && !requested {
+            return false;
+        }
+        let starting = !self.closing;
+        self.closing = true;
+        self.spaces.request_shutdown(&self.model);
+        if starting {
+            self.repository = repository::Panel::default();
+        }
+        if self.spaces.shutdown_finished(&self.model) {
+            context.send_viewport_cmd(egui::ViewportCommand::Close);
+        } else {
+            // Keep the event loop alive until joins cannot block window destruction.
+            // https://docs.rs/egui/latest/egui/enum.ViewportCommand.html#variant.CancelClose
+            context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            if starting {
+                context.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                context.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            }
+            context.request_repaint_after(Duration::from_millis(50));
+        }
+        true
+    }
+
     fn workspace_controls(&mut self, ui: &mut egui::Ui) {
         let language = self.model.language;
         let before = self.spaces.selected();
@@ -442,6 +482,15 @@ impl Desktop {
 
     fn paint(&mut self, ui: &mut egui::Ui) {
         let language = self.model.language;
+        if self.closing {
+            ui.vertical_centered(|ui| {
+                ui.add_space(32.0);
+                ui.spinner();
+                ui.heading(language.text("Stopping tasks…"));
+                ui.label(language.text("Waiting for current operations to finish safely."));
+            });
+            return;
+        }
         if self.spaces.poll(&mut self.model) {
             self.clear_workspace();
             egui::DragAndDrop::clear_payload(ui.ctx());
@@ -1341,6 +1390,7 @@ mod tests {
             tray: None,
             tray_error: None,
             hide_on_start: false,
+            closing: false,
             desktop_settings: false,
             selected: None,
             draft: None,
@@ -1357,6 +1407,47 @@ mod tests {
             import_branch: 0,
             import_path: String::new(),
         }
+    }
+
+    #[test]
+    fn shutdown_keeps_painting_until_controller_initialization_finishes() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut app = fixture(temp.path());
+        settle(&mut app);
+        let blocked = crate::workspace::BackupStore::open(temp.path().join("blocked")).unwrap();
+        let lock = crate::git::Lock::wait(&blocked.directory().join("store.lock")).unwrap();
+        app.model = Model::new(Some(blocked.directory().to_path_buf()));
+        let context = egui::Context::default();
+        configure_fonts(&context);
+        for language in [Language::English, Language::Chinese] {
+            app.model.language = language;
+            let start = Instant::now();
+            let mut output = context.run_ui(Default::default(), |ui| {
+                assert!(app.shutdown(ui.ctx(), true));
+                app.paint(ui);
+            });
+            output.textures_delta.clear();
+            assert!(start.elapsed() < Duration::from_secs(2));
+            let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+            assert!(commands.contains(&egui::ViewportCommand::CancelClose));
+            assert!(!commands.contains(&egui::ViewportCommand::Close));
+            assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == language.text("Stopping tasks…"))));
+        }
+        drop(lock);
+        let until = Instant::now() + Duration::from_secs(15);
+        while !app.spaces.shutdown_finished(&app.model) && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(app.spaces.shutdown_finished(&app.model));
+        let mut output = context.run_ui(Default::default(), |ui| {
+            app.shutdown(ui.ctx(), false);
+        });
+        output.textures_delta.clear();
+        assert!(
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .contains(&egui::ViewportCommand::Close)
+        );
     }
 
     #[test]

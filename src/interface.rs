@@ -132,6 +132,7 @@ pub(crate) struct Model {
 struct Worker {
     store: BackupStore,
     scope: Scope,
+    stop: StopToken,
     sender: Sender<Message>,
     active: HashMap<Uuid, (StopToken, JoinHandle<Result<()>>)>,
     states: HashMap<Uuid, Text>,
@@ -265,6 +266,9 @@ impl Model {
                     None => BackupStore::default_directory()?,
                 };
                 let store = BackupStore::open(directory)?;
+                if worker_stop.is_stopped() {
+                    return Ok(());
+                }
                 let _lock = Lock::acquire(&store.directory().join("interface.lock"))
                     .context("Another task interface is using this data directory")?;
                 ensure!(
@@ -274,6 +278,7 @@ impl Model {
                 let mut worker = Worker {
                     store,
                     scope,
+                    stop: worker_stop.clone(),
                     sender: messages.clone(),
                     active: HashMap::new(),
                     states: HashMap::new(),
@@ -328,7 +333,7 @@ impl Model {
     }
 
     pub fn send(&mut self, command: Command) {
-        if self.busy {
+        if self.busy || self.stop.is_stopped() {
             return;
         }
         self.error = None;
@@ -336,6 +341,16 @@ impl Model {
             Ok(()) => self.busy = true,
             Err(_) => self.error = Some("Background controller is unavailable".into()),
         }
+    }
+
+    pub fn request_shutdown(&self) {
+        self.stop.stop();
+    }
+
+    pub fn shutdown_finished(&self) -> bool {
+        self.worker
+            .as_ref()
+            .is_none_or(|worker| worker.is_finished())
     }
 
     pub fn poll(&mut self) {
@@ -446,14 +461,22 @@ impl Worker {
     }
 
     fn resume(&mut self) -> Result<()> {
+        if self.stop.is_stopped() {
+            return Ok(());
+        }
         // Names must be available even when a task fails before its worker starts.
         self.refresh()?;
         for id in Preferences::load(self.store.directory())?.started_tasks {
+            if self.stop.is_stopped() {
+                return Ok(());
+            }
             if let Err(error) = self.command(Command::Start(id)) {
                 let _ = self
                     .sender
                     .send(Message::Status(id, Text::Error(format!("{error:#}"))));
-                self.remember(id, false)?;
+                if !self.stop.is_stopped() {
+                    self.remember(id, false)?;
+                }
             }
         }
         self.refresh()
@@ -533,11 +556,11 @@ impl Worker {
             return;
         }
         for id in finished {
-            if let Some((_, handle)) = self.active.remove(&id) {
-                let _ = handle.join();
-            }
+            let completed = self.active.remove(&id).map(|(_, handle)| handle.join());
             self.states.insert(id, "Stopped; see activity".into());
-            if let Err(error) = self.remember(id, false) {
+            if (!self.stop.is_stopped() || !matches!(completed, Some(Ok(Ok(())))))
+                && let Err(error) = self.remember(id, false)
+            {
                 let _ = self
                     .sender
                     .send(Message::Status(id, Text::Error(format!("{error:#}"))));
@@ -547,6 +570,9 @@ impl Worker {
     }
 
     fn command(&mut self, command: Command) -> Result<Text> {
+        if self.stop.is_stopped() {
+            return Ok("Stopping tasks…".into());
+        }
         match command {
             Command::Language(language) => {
                 language.save(self.store.directory())?;
@@ -718,11 +744,11 @@ impl Worker {
                 self.remember(id, true)?;
                 let store = self.store.clone();
                 let sender = self.sender.clone();
-                let stop = StopToken::default();
+                let stop = self.stop.child();
                 let token = stop.clone();
                 let (begin, ready) = mpsc::channel();
                 let handle = thread::spawn(move || {
-                    if ready.recv().is_err() {
+                    if ready.recv().is_err() || token.is_stopped() {
                         return Ok(());
                     }
                     let report = |event| {
@@ -919,10 +945,7 @@ impl Worker {
 impl Drop for Worker {
     fn drop(&mut self) {
         // Preserve startup intent on exit, but do not restart completed failures.
-        self.reap();
-        for (stop, _) in self.active.values() {
-            stop.stop();
-        }
+        self.stop.stop();
         for (id, (_, handle)) in self.active.drain() {
             if !matches!(handle.join(), Ok(Ok(()))) {
                 let result = Preferences::update(self.store.directory(), |preferences| {
@@ -1028,7 +1051,7 @@ mod tests {
     use super::*;
     use crate::test_git::git;
 
-    fn wait(model: &mut Model) {
+    pub(super) fn wait(model: &mut Model) {
         let deadline = Instant::now() + Duration::from_secs(15);
         while model.busy && Instant::now() < deadline {
             model.poll();
@@ -1041,6 +1064,82 @@ mod tests {
         model.send(command);
         wait(model);
         assert!(model.error.is_none(), "{:?}", model.error);
+    }
+
+    #[test]
+    fn shutdown_reaches_started_tasks_and_preserves_restart_intent() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = BackupStore::open(temp.path().join("data")).unwrap();
+        let ids = [Uuid::new_v4(), Uuid::new_v4()];
+        let tasks: Vec<_> = ids
+            .iter()
+            .enumerate()
+            .map(|(index, id)| Draft {
+                id: Some(*id),
+                kind: Kind::Pull,
+                name: format!("task-{index}"),
+                path: temp
+                    .path()
+                    .join(format!("missing-{index}"))
+                    .to_string_lossy()
+                    .into_owned(),
+                ..Draft::default()
+            })
+            .collect();
+        fs::write(
+            store.directory().join("tasks.json"),
+            serde_json::to_vec(&tasks).unwrap(),
+        )
+        .unwrap();
+        let deadline = SystemTime::now() + Duration::from_secs(3600);
+        Preferences::update(store.directory(), |preferences| {
+            preferences.started_tasks.extend(ids);
+            preferences
+                .pull_deadlines
+                .extend(ids.map(|id| (id, deadline)));
+        })
+        .unwrap();
+        let (sender, _receiver) = mpsc::channel();
+        let mut worker = Worker {
+            store: store.clone(),
+            scope: Scope::Standalone,
+            stop: StopToken::default(),
+            sender,
+            active: HashMap::new(),
+            states: HashMap::new(),
+        };
+        worker.resume().unwrap();
+        assert_eq!(worker.active.len(), 2);
+        worker.stop.stop();
+        let propagated = worker.active.values().all(|(stop, _)| stop.is_stopped());
+        // Also release children explicitly so a failed propagation assertion cannot hang cleanup.
+        for (stop, _) in worker.active.values() {
+            stop.stop();
+        }
+        let until = Instant::now() + Duration::from_secs(15);
+        while !worker
+            .active
+            .values()
+            .all(|(_, handle)| handle.is_finished())
+            && Instant::now() < until
+        {
+            thread::sleep(Duration::from_millis(10));
+        }
+        worker.reap();
+        assert!(worker.active.is_empty());
+        worker.resume().unwrap();
+        let restarted = !worker.active.is_empty();
+        drop(worker);
+        assert!(propagated, "Controller shutdown did not reach its tasks");
+        assert!(!restarted, "Shutdown resumed additional tasks");
+        let preferences = Preferences::load(store.directory()).unwrap();
+        assert_eq!(preferences.started_tasks, ids.into_iter().collect());
+        assert_eq!(
+            preferences.pull_deadlines,
+            ids.map(|id| (id, deadline)).into_iter().collect()
+        );
+        assert!(!temp.path().join("missing-0").exists());
+        assert!(!temp.path().join("missing-1").exists());
     }
 
     #[test]

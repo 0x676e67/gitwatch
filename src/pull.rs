@@ -256,6 +256,9 @@ impl PullTask {
         while !stop.is_stopped() {
             if stop.take_once() || Instant::now() >= next {
                 schedule(None)?;
+                if stop.is_stopped() {
+                    break;
+                }
                 let result = self.update();
                 if self.blocked {
                     return result.map(|_| ());
