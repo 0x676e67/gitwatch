@@ -610,6 +610,8 @@ impl Screen {
                 if let Some(id) = id
                     && row.is_some_and(|row| row.draft.kind == Kind::Workspace)
                 {
+                    self.entry = 0;
+                    self.scroll = 0;
                     self.confirm = false;
                     self.model.plan = None;
                     self.model.text.clear();
