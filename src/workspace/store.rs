@@ -717,7 +717,7 @@ impl BackupStore {
         Ok(())
     }
 
-    fn save_report(&self, report: &BackupReport) -> Result<()> {
+    pub(super) fn save_report(&self, report: &BackupReport) -> Result<()> {
         paths::atomic_write(
             &self
                 .data

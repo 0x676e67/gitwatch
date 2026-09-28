@@ -753,6 +753,16 @@ impl Desktop {
                     self.remove = true;
                 }
                 if kind == Kind::Workspace {
+                    if self.model.remote.is_some()
+                        && ui.add_enabled(!running, Icon::Download.button(language.text("Restore from remote")))
+                            .on_hover_text(language.text("Fetch the latest backup and preview changes before writing local files."))
+                            .clicked()
+                    {
+                        self.confirm = false;
+                        self.model.plan = None;
+                        self.model.text.clear();
+                        self.model.send(Command::PreviewRemote(id));
+                    }
                     if ui
                         .add(Icon::History.button(language.text("History")))
                         .clicked()
@@ -812,6 +822,9 @@ impl Desktop {
                 ui.separator(); ui.heading(language.text("Restore preview"));
                 ui.label(language.format("Destination: {0}", &[&plan.root().display().to_string()]));
                 ui.label(language.format("Version: {0}", &[plan.commit()]));
+                if plan.is_remote() {
+                    ui.label(language.text("Use the previewed remote contents. Both backup histories and extra local files are kept. Upload separately to share the result."));
+                }
                 let mut command = None;
                 for entry in plan.entries() {
                     if ui.add_enabled(!self.model.busy, egui::Button::new(format!("{}  {}", language.text(&format!("{:?}", entry.change())), entry.path()))).clicked() { command = Some(Command::Contents(plan.id(), entry.path().into())); }
@@ -1091,7 +1104,7 @@ impl Desktop {
                     ));
                 }
             });
-            ui.label(language.text("Import creates a local binding. Preview a restore to copy files into your project."));
+            ui.label(language.text("Import creates a paused task. Select it and choose Restore from remote to preview files for this computer."));
         }
     }
 }
@@ -1562,6 +1575,74 @@ mod tests {
         assert!(!app.activity_open);
         click(&mut app, &context, "Activity");
         assert!(app.activity_open);
+    }
+
+    #[test]
+    fn remote_restore_button_previews_before_confirming() {
+        let temp = tempfile::tempdir().unwrap();
+        let remote = temp.path().join("remote.git");
+        fs::create_dir(&remote).unwrap();
+        crate::test_git::git(&remote, &["init", "--bare"]);
+        let source = temp.path().join("source");
+        fs::create_dir(&source).unwrap();
+        let file = source.join("notes.md");
+        fs::write(&file, "remote contents").unwrap();
+        let mut app = fixture(temp.path());
+        settle(&mut app);
+        app.spaces
+            .create("Shared".into(), remote.to_string_lossy().into_owned());
+        settle(&mut app);
+        let space = app
+            .spaces
+            .list()
+            .iter()
+            .find(|space| !space.id.is_nil())
+            .unwrap()
+            .id;
+        app.spaces.switch(&mut app.model, space);
+        settle(&mut app);
+        app.model.send(Command::Save(Draft {
+            name: "Notes".into(),
+            path: source.to_string_lossy().into_owned(),
+            includes: "notes.md".into(),
+            ..Draft::default()
+        }));
+        settle(&mut app);
+        let id = app.model.rows[0].draft.id.unwrap();
+        app.model.send(Command::Once(id));
+        settle(&mut app);
+        app.model.send(Command::Push(id));
+        settle(&mut app);
+        let context = egui::Context::default();
+        theme::apply(&context);
+        context.all_styles_mut(|style| style.animation_time = 0.0);
+        configure_fonts(&context);
+        for language in [Language::English, Language::Chinese] {
+            app.spaces
+                .global(&mut app.model, Command::Language(language));
+            settle(&mut app);
+            fs::write(&file, "unpublished local contents").unwrap();
+            click(&mut app, &context, "Notes");
+            click(&mut app, &context, language.text("Restore from remote"));
+            settle(&mut app);
+            assert!(app.model.plan.as_ref().unwrap().is_remote());
+            assert_eq!(
+                fs::read_to_string(&file).unwrap(),
+                "unpublished local contents"
+            );
+            click(
+                &mut app,
+                &context,
+                language.text("Continue to confirmation"),
+            );
+            assert_eq!(
+                fs::read_to_string(&file).unwrap(),
+                "unpublished local contents"
+            );
+            click(&mut app, &context, language.text("Confirm restore"));
+            settle(&mut app);
+            assert_eq!(fs::read_to_string(&file).unwrap(), "remote contents");
+        }
     }
 
     #[test]

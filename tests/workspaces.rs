@@ -748,6 +748,93 @@ fn remote_import_and_divergent_upload_preserve_both_devices() {
     );
     assert_eq!(fs::read(source_b.join("AGENTS.md")).unwrap(), b"device B");
     assert_eq!(b.fetch().unwrap()[0].commit(), a_commit.commit());
+
+    let stale = b.preview_remote_restore(imported.id()).unwrap();
+    assert!(stale.is_remote());
+    assert_eq!(stale.commit(), a_commit.commit());
+    assert_eq!(fs::read(source_b.join("AGENTS.md")).unwrap(), b"device B");
+    assert_eq!(
+        git(b.repository(), &["rev-parse", "project"]),
+        b_commit.commit()
+    );
+    fs::write(source_b.join("AGENTS.md"), "new local backup").unwrap();
+    let b_new = b.backup(imported.id()).unwrap();
+    assert!(
+        b.apply_restore(stale.id())
+            .unwrap_err()
+            .to_string()
+            .contains("Local backup history changed")
+    );
+    let stale = b.preview_remote_restore(imported.id()).unwrap();
+    fs::write(source_a.join("AGENTS.md"), "new remote backup").unwrap();
+    let a_new = a.backup(workspace.id()).unwrap();
+    b.fetch().unwrap();
+    assert!(
+        b.apply_restore(stale.id())
+            .unwrap_err()
+            .to_string()
+            .contains("Fetched remote history changed")
+    );
+    let stale = b.preview_remote_restore(imported.id()).unwrap();
+    b.set_remote(None, false).unwrap();
+    assert!(
+        b.apply_restore(stale.id())
+            .unwrap_err()
+            .to_string()
+            .contains("Backup remote changed")
+    );
+    b.set_remote(Some(remote.to_str().unwrap()), true).unwrap();
+    let plan = b.preview_remote_restore(imported.id()).unwrap();
+    fs::write(source_b.join("extra.txt"), "keep local").unwrap();
+    let restored = b.apply_restore(plan.id()).unwrap();
+    assert!(restored.error().is_none(), "{restored:?}");
+    assert_eq!(
+        fs::read(source_b.join("AGENTS.md")).unwrap(),
+        b"new remote backup"
+    );
+    assert_eq!(
+        fs::read(restored.recovery().join("files/AGENTS.md")).unwrap(),
+        b"new local backup"
+    );
+    assert_eq!(fs::read(source_b.join("extra.txt")).unwrap(), b"keep local");
+    let merged = git(b.repository(), &["rev-parse", "project"]);
+    assert_eq!(
+        git(
+            b.repository(),
+            &["rev-list", "--parents", "-n", "1", &merged]
+        ),
+        format!("{merged} {} {}", b_new.commit(), a_new.commit())
+    );
+    assert!(matches!(
+        b.status(imported.id()).unwrap().unwrap().upload(),
+        UploadState::Pending
+    ));
+    git(&remote, &["config", "receive.denyNonFastForwards", "true"]);
+    b.push(imported.id()).unwrap();
+    assert_eq!(git(&remote, &["rev-parse", "project"]), merged);
+
+    // Device A can now receive B's resolution, edit again, and push without rewriting history.
+    let plan = a.preview_remote_restore(workspace.id()).unwrap();
+    assert!(a.apply_restore(plan.id()).unwrap().error().is_none());
+    assert_eq!(git(a.repository(), &["rev-parse", "project"]), merged);
+    fs::write(source_a.join("AGENTS.md"), "next edit on A").unwrap();
+    assert!(matches!(
+        a.backup(workspace.id()).unwrap().upload(),
+        UploadState::Synced
+    ));
+
+    // A deliberate restore of an older remote tree retains local-only commits as well.
+    a.set_remote(Some(remote.to_str().unwrap()), false).unwrap();
+    fs::write(source_a.join("AGENTS.md"), "local only").unwrap();
+    let local = a.backup(workspace.id()).unwrap();
+    let plan = a.preview_remote_restore(workspace.id()).unwrap();
+    let restored = a.apply_restore(plan.id()).unwrap();
+    assert!(restored.error().is_none());
+    a.push(workspace.id()).unwrap();
+    assert_eq!(
+        git(a.repository(), &["merge-base", local.commit(), "project"]),
+        local.commit()
+    );
 }
 
 #[test]

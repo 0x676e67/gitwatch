@@ -87,6 +87,7 @@ pub(crate) enum Command {
     History(Uuid),
     Diff(Uuid, String, String),
     Preview(Uuid, String, Vec<String>),
+    PreviewRemote(Uuid),
     Contents(Uuid, String),
     Restore(Uuid),
 }
@@ -902,6 +903,15 @@ impl Worker {
                     self.store.preview_restore(id, &revision, &selected)?,
                 ));
             }
+            Command::PreviewRemote(id) => {
+                ensure!(
+                    !self.active.contains_key(&id),
+                    "Stop the task before preparing a restore"
+                );
+                let _ = self
+                    .sender
+                    .send(Message::Preview(self.store.preview_remote_restore(id)?));
+            }
             Command::Contents(plan, path) => {
                 let (before, after) = self.store.restore_contents(plan, &path)?;
                 let text = Text::format(
@@ -935,6 +945,13 @@ impl Worker {
                     "{text}; partial restore: {}",
                     report.error().unwrap_or("")
                 );
+                self.states.insert(plan.workspace(), text.clone());
+                self.refresh()?;
+                let _ = self.sender.send(Message::History(self.store.history(
+                    plan.workspace(),
+                    None,
+                    100,
+                )?));
                 return Ok(text);
             }
         }
@@ -1883,7 +1900,32 @@ mod tests {
             model.error,
             model.logs
         );
+        model.send(Command::PreviewRemote(id));
+        wait(&mut model);
+        assert!(model.error.as_ref().unwrap().contains("Stop the task"));
         command(&mut model, Command::Stop(id));
+        let remote = temp.path().join("remote.git");
+        fs::create_dir(&remote).unwrap();
+        git(&remote, &["init", "--bare"]);
+        command(
+            &mut model,
+            Command::Remote(remote.to_string_lossy().into_owned(), false),
+        );
+        command(&mut model, Command::Push(id));
+        fs::write(source.join("notes.md"), "local edit before remote preview").unwrap();
+        command(&mut model, Command::PreviewRemote(id));
+        let plan = model.plan.as_ref().unwrap();
+        assert!(plan.is_remote());
+        assert_eq!(
+            fs::read_to_string(source.join("notes.md")).unwrap(),
+            "local edit before remote preview"
+        );
+        let plan = plan.id();
+        command(&mut model, Command::Restore(plan));
+        assert_eq!(
+            fs::read_to_string(source.join("notes.md")).unwrap(),
+            "first"
+        );
         command(
             &mut model,
             Command::Save(Draft {
