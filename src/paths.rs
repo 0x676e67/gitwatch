@@ -12,6 +12,26 @@ use crate::Result;
 pub(crate) const MAX_FILE: u64 = 16 * 1024 * 1024;
 pub(crate) const MAX_SNAPSHOT: usize = 128 * 1024 * 1024;
 
+pub(crate) fn data_directory() -> Result<PathBuf> {
+    let root = dirs::data_local_dir().context("Cannot locate user data directory")?;
+    // Preserve the application's existing platform layout when switching to dirs.
+    // https://docs.rs/directories/6.0.0/directories/struct.ProjectDirs.html
+    Ok(root.join(if cfg!(windows) {
+        "gitwatch/data"
+    } else {
+        "gitwatch"
+    }))
+}
+
+pub(crate) fn cache_directory() -> Result<PathBuf> {
+    let root = dirs::cache_dir().context("Cannot locate application cache")?;
+    Ok(root.join(if cfg!(windows) {
+        "gitwatch/cache"
+    } else {
+        "gitwatch"
+    }))
+}
+
 pub(crate) fn relative(path: &str) -> Result<()> {
     ensure!(!path.is_empty(), "Select a relative file or directory");
     for part in path.split('/') {

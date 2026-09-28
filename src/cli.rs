@@ -328,7 +328,7 @@ fn run_localized(args: Vec<std::ffi::OsString>, language: Language) -> Result<()
             cli.command,
             Some(Action::Manage { .. } | Action::Tui | Action::Desktop)
         ) {
-        cli_notifications(cli.data_dir.clone(), language)
+        cli_notifications(language)
     } else {
         None
     };
@@ -522,17 +522,14 @@ fn confirm_installation(
     Ok(())
 }
 
-fn cli_notifications(
-    data: Option<PathBuf>,
-    language: Language,
-) -> Option<std::sync::mpsc::Sender<()>> {
+fn cli_notifications(language: Language) -> Option<std::sync::mpsc::Sender<()>> {
     use std::io::IsTerminal;
     if !std::io::stderr().is_terminal() {
         return None;
     }
     let (stop, stopped) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let notices = gitwatch::update::Notifications::start(data);
+        let notices = gitwatch::update::Notifications::start(None);
         loop {
             if let Some(release) = notices.poll() {
                 eprintln!(

@@ -288,10 +288,7 @@ fn directory() -> Result<PathBuf> {
 }
 
 fn lock(directory: &Path, exclusive: bool) -> Result<File> {
-    let cache = directories::ProjectDirs::from("", "", "gitwatch")
-        .context("Cannot locate application cache")?
-        .cache_dir()
-        .join("installations");
+    let cache = paths::cache_directory()?.join("installations");
     fs::create_dir_all(&cache)?;
     let name = paths::digest(directory.as_os_str().as_encoded_bytes());
     let path = cache.join(format!("{name}.lock"));
