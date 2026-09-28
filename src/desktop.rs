@@ -564,10 +564,18 @@ impl Desktop {
                             )
                             .clicked()
                     {
-                        self.settings = !self.settings;
-                        self.draft = None;
-                        self.remote = self.model.remote.clone().unwrap_or_default();
-                        self.auto_push = self.model.auto_push;
+                        self.set_backup_settings(!self.settings);
+                    }
+                    if !self.spaces.selected().is_nil()
+                        && ui
+                            .add_enabled(
+                                !self.model.busy && self.model.remote.is_some(),
+                                Icon::Download.button(language.text("Import remote tasks")),
+                            )
+                            .clicked()
+                    {
+                        self.set_backup_settings(true);
+                        self.model.send(Command::Fetch);
                     }
                     if ui
                         .add_enabled(
@@ -1018,6 +1026,13 @@ impl Desktop {
         }
     }
 
+    fn set_backup_settings(&mut self, visible: bool) {
+        self.settings = visible;
+        self.draft = None;
+        self.remote = self.model.remote.clone().unwrap_or_default();
+        self.auto_push = self.model.auto_push;
+    }
+
     fn settings(&mut self, ui: &mut egui::Ui) {
         let language = self.model.language;
         if self.spaces.selected().is_nil() {
@@ -1051,7 +1066,7 @@ impl Desktop {
                 if ui
                     .add_enabled(
                         self.model.remote.is_some(),
-                        Icon::Download.button(language.text("Fetch workspaces")),
+                        Icon::Download.button(language.text("Fetch backup tasks")),
                     )
                     .clicked()
                 {
@@ -1060,7 +1075,7 @@ impl Desktop {
             });
         });
         if !self.model.branches.is_empty() {
-            egui::ComboBox::from_label(language.text("Workspace branch"))
+            egui::ComboBox::from_label(language.text("Backup task branch"))
                 .selected_text(
                     self.model
                         .branches
@@ -1478,6 +1493,7 @@ mod tests {
         let output = render(&mut app, &context, vec![]);
         for label in [
             "Backup settings",
+            "Import remote tasks",
             "Workspace backup remote",
             "Rename workspace",
             "Remove workspace",
@@ -1587,6 +1603,18 @@ mod tests {
         fs::create_dir(&source).unwrap();
         let file = source.join("notes.md");
         fs::write(&file, "remote contents").unwrap();
+        let seed = crate::workspace::BackupStore::open(temp.path().join("seed")).unwrap();
+        let task = crate::workspace::Workspace::builder("Notes", &source)
+            .include("notes.md")
+            .build()
+            .unwrap();
+        seed.register(task.clone()).unwrap();
+        seed.set_remote(Some(remote.to_str().unwrap()), true)
+            .unwrap();
+        seed.backup(task.id()).unwrap();
+        let destination = temp.path().join("destination");
+        fs::create_dir(&destination).unwrap();
+        let file = destination.join("notes.md");
         let mut app = fixture(temp.path());
         settle(&mut app);
         app.spaces
@@ -1601,22 +1629,23 @@ mod tests {
             .id;
         app.spaces.switch(&mut app.model, space);
         settle(&mut app);
-        app.model.send(Command::Save(Draft {
-            name: "Notes".into(),
-            path: source.to_string_lossy().into_owned(),
-            includes: "notes.md".into(),
-            ..Draft::default()
-        }));
-        settle(&mut app);
-        let id = app.model.rows[0].draft.id.unwrap();
-        app.model.send(Command::Once(id));
-        settle(&mut app);
-        app.model.send(Command::Push(id));
-        settle(&mut app);
         let context = egui::Context::default();
         theme::apply(&context);
         context.all_styles_mut(|style| style.animation_time = 0.0);
         configure_fonts(&context);
+        click(&mut app, &context, "Import remote tasks");
+        settle(&mut app);
+        assert!(app.settings);
+        assert_eq!(app.model.branches.len(), 1);
+        app.import_path = destination.to_string_lossy().into_owned();
+        click(&mut app, &context, "Import paused");
+        settle(&mut app);
+        assert_eq!(app.model.rows[0].draft.id, Some(task.id()));
+        assert!(!app.model.rows[0].running);
+        assert!(
+            !file.exists(),
+            "Import must not restore files without confirmation"
+        );
         for language in [Language::English, Language::Chinese] {
             app.spaces
                 .global(&mut app.model, Command::Language(language));

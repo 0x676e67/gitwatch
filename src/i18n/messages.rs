@@ -1,6 +1,7 @@
 // English source messages are stable keys. Numbered values are inserted verbatim.
 pub(super) const TEXT: &[(&str, &str)] = &[
     ("Restore from remote", "从远程恢复"),
+    ("Import remote tasks", "导入远程任务"),
     (
         "No remote backup for this task; upload it from the other computer first",
         "远端没有此任务的备份，请先从另一台电脑上传",
@@ -525,8 +526,8 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     ("Remote URL", "远端地址"),
     ("Upload after each local backup", "每次本地备份后上传"),
     ("Save remote", "保存远端"),
-    ("Fetch workspaces", "获取工作空间"),
-    ("Workspace branch", "工作空间分支"),
+    ("Fetch backup tasks", "获取备份任务"),
+    ("Backup task branch", "备份任务分支"),
     ("Choose branch", "选择分支"),
     ("Bind to local directory", "绑定到本地目录"),
     ("Import paused", "导入并暂停"),
