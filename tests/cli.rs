@@ -3,6 +3,9 @@ use std::{fs, process::Command};
 use serde_json::Value;
 use tempfile::TempDir;
 
+#[path = "support/git.rs"]
+mod support;
+
 fn cli(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_gitwatch"))
         .args(args)
@@ -125,5 +128,33 @@ fn workspace_json_backup_and_confirmed_restore_round_trip() {
     assert_eq!(
         fs::read_to_string(source.join("notes.md")).unwrap(),
         "saved"
+    );
+    let remote = temp.path().join("remote.git");
+    support::git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+    run(&["remote", remote.to_str().unwrap()]);
+    run(&["push", id]);
+    fs::write(source.join("notes.md"), "changed locally").unwrap();
+    let preview = run(&["restore", id, "--from-remote"]);
+    assert!(preview["remote"].is_object());
+    assert_eq!(preview["commit"], backup["detail"]["commit"]);
+    assert_eq!(
+        fs::read_to_string(source.join("notes.md")).unwrap(),
+        "changed locally"
+    );
+    let plan = preview["id"].as_str().unwrap();
+    run(&["restore", id, "--plan", plan, "--confirm"]);
+    assert_eq!(
+        fs::read_to_string(source.join("notes.md")).unwrap(),
+        "saved"
+    );
+    assert_eq!(
+        cli(&[
+            &prefix[..],
+            &["restore", id, "--from-remote", "--file", "notes.md"]
+        ]
+        .concat())
+        .status
+        .code(),
+        Some(2)
     );
 }

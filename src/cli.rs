@@ -241,6 +241,9 @@ enum WorkspaceAction {
     },
     Restore {
         workspace: String,
+        /// Fetch and preview the latest remote backup, preserving both histories on confirmation.
+        #[arg(long, conflicts_with_all = ["revision", "plan", "files"])]
+        from_remote: bool,
         #[arg(long, conflicts_with = "plan")]
         revision: Option<String>,
         #[arg(long)]
@@ -844,6 +847,7 @@ fn workspace_command(
         }
         WorkspaceAction::Restore {
             workspace,
+            from_remote,
             revision,
             plan,
             confirm,
@@ -897,11 +901,18 @@ fn workspace_command(
                 }
             } else {
                 ensure!(!confirm, "Confirmation requires a saved --plan");
-                let plan = store.preview_restore(
-                    workspace.id(),
-                    revision.as_deref().unwrap_or(workspace.branch()),
-                    &files,
-                )?;
+                let plan = if from_remote {
+                    store.preview_remote_restore(workspace.id())?
+                } else {
+                    store.preview_restore(
+                        workspace.id(),
+                        revision.as_deref().unwrap_or(workspace.branch()),
+                        &files,
+                    )?
+                };
+                if plan.is_remote() && !json {
+                    println!("{}", language.text("Use the previewed remote contents. Both backup histories and extra local files are kept. Upload separately to share the result."));
+                }
                 let lines = plan
                     .entries()
                     .iter()

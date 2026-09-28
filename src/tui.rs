@@ -323,6 +323,10 @@ impl Screen {
                 detail.push_str(language.text("Remove selected local binding? History is retained. y: confirm / Esc: cancel\n\n"));
             }
             if let Some(plan) = &self.model.plan {
+                if plan.is_remote() {
+                    detail.push_str(language.text("Use the previewed remote contents. Both backup histories and extra local files are kept. Upload separately to share the result."));
+                    detail.push('\n');
+                }
                 detail.push_str(&language.format(
                     "Restore {0}\n{1}\n",
                     &[plan.commit(), &plan.root().display().to_string()],
@@ -393,7 +397,7 @@ impl Screen {
                     })
                     .into()
             });
-        let shortcuts = language.text("n: new  e: edit  s: start/stop  b: run once  h: history  p: push  x: remove\nu: backup remote  f: fetch  F3: language  F5: refresh  q: quit  ↑↓: select");
+        let shortcuts = language.text("n: new  e: edit  s: start/stop  b: run once  h: history  p: push  x: remove\nu: backup remote  f: fetch  o: restore remote  F3: language  F5: refresh  q: quit  ↑↓: select");
         frame.render_widget(
             Paragraph::new(format!("{shortcuts}\n{status}")).style(Style::default().fg(
                 if self.model.error.is_some() {
@@ -602,6 +606,18 @@ impl Screen {
                 }
             }
             KeyCode::Char('f') => self.model.send(Command::Fetch),
+            KeyCode::Char('o') => {
+                if let Some(id) = id
+                    && row.is_some_and(|row| row.draft.kind == Kind::Workspace)
+                {
+                    self.entry = 0;
+                    self.scroll = 0;
+                    self.confirm = false;
+                    self.model.plan = None;
+                    self.model.text.clear();
+                    self.model.send(Command::PreviewRemote(id));
+                }
+            }
             KeyCode::Char('i') => {
                 if !self.model.branches.is_empty() {
                     self.import_path = Some(String::new());

@@ -1,5 +1,39 @@
 // English source messages are stable keys. Numbered values are inserted verbatim.
 pub(super) const TEXT: &[(&str, &str)] = &[
+    ("Restore from remote", "从远程恢复"),
+    ("Import remote tasks", "导入远程任务"),
+    (
+        "No remote backup for this task; upload it from the other computer first",
+        "远端没有此任务的备份，请先从另一台电脑上传",
+    ),
+    (
+        "Fetch and preview the latest remote backup, preserving both histories on confirmation.",
+        "获取并预览最新远程备份，确认恢复时保留双方历史。",
+    ),
+    (
+        "Fetch the latest backup and preview changes before writing local files.",
+        "获取最新备份，预览差异后再写入本地文件。",
+    ),
+    (
+        "Use the previewed remote contents. Both backup histories and extra local files are kept. Upload separately to share the result.",
+        "采用预览中的远程内容，保留双方备份历史和额外的本地文件。之后可点击上传，将结果同步到远端。",
+    ),
+    (
+        "Backup remote changed after preview; fetch a new preview",
+        "预览后备份远端已更改，请重新获取预览",
+    ),
+    (
+        "Local backup history changed after preview; fetch a new preview",
+        "预览后本地备份历史已更改，请重新获取预览",
+    ),
+    (
+        "Fetched remote history changed after preview; fetch a new preview",
+        "预览后获取的远程历史已更改，请重新获取预览",
+    ),
+    (
+        "Remote restore requires the complete preview",
+        "从远程恢复需要完整预览",
+    ),
     ("Stopping tasks…", "正在停止任务…"),
     (
         "Waiting for current operations to finish safely.",
@@ -492,14 +526,14 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     ("Remote URL", "远端地址"),
     ("Upload after each local backup", "每次本地备份后上传"),
     ("Save remote", "保存远端"),
-    ("Fetch workspaces", "获取工作空间"),
-    ("Workspace branch", "工作空间分支"),
+    ("Fetch backup tasks", "获取备份任务"),
+    ("Backup task branch", "备份任务分支"),
     ("Choose branch", "选择分支"),
     ("Bind to local directory", "绑定到本地目录"),
     ("Import paused", "导入并暂停"),
     (
-        "Import creates a local binding. Preview a restore to copy files into your project.",
-        "导入会建立本地绑定。先预览恢复，再将文件写入项目。",
+        "Import creates a paused task. Select it and choose Restore from remote to preview files for this computer.",
+        "导入会创建暂停的任务。选择该任务，点击“从远程恢复”，即可预览要写入这台电脑的文件。",
     ),
     (
         "gitwatch  /  Workspaces · Repository watch · Scheduled pull",
@@ -568,8 +602,8 @@ pub(super) const TEXT: &[(&str, &str)] = &[
         "历史 / 恢复 / 活动记录  PgUp/PgDn 翻页",
     ),
     (
-        "n: new  e: edit  s: start/stop  b: run once  h: history  p: push  x: remove\nu: backup remote  f: fetch  F3: language  F5: refresh  q: quit  ↑↓: select",
-        "n：新建 e：编辑 s：启停 b：执行一次 h：历史 p：上传 x：移除\nu：备份远端 f：获取 F3：语言 F5：刷新 q：退出 ↑↓：选择",
+        "n: new  e: edit  s: start/stop  b: run once  h: history  p: push  x: remove\nu: backup remote  f: fetch  o: restore remote  F3: language  F5: refresh  q: quit  ↑↓: select",
+        "n：新建 e：编辑 s：启停 b：执行一次 h：历史 p：上传 x：移除\nu：备份远端 f：获取 o：远程恢复 F3：语言 F5：刷新 q：退出 ↑↓：选择",
     ),
     ("{0}: {1}", "{0}：{1}"),
     ("{0} at {1}", "{0}，版本 {1}"),

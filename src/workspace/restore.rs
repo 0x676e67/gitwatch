@@ -9,7 +9,7 @@ use anyhow::{Context, ensure};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::BackupStore;
+use super::{BackupReport, BackupStore, UploadState};
 use crate::{Result, paths};
 
 /// A source-file change proposed by a restore preview.
@@ -45,6 +45,16 @@ pub struct RestorePlan {
     commit: String,
     created: u64,
     entries: Vec<RestoreEntry>,
+    #[serde(default)]
+    remote: Option<RemoteRestore>,
+}
+
+/// Binds remote confirmation to the branch and history that were previewed.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct RemoteRestore {
+    branch: String,
+    configuration: String,
+    local: Option<String>,
 }
 
 /// An applied restore. Partial failures retain recovery copies and completed paths.
@@ -91,6 +101,11 @@ impl RestorePlan {
     pub fn root(&self) -> &std::path::Path {
         &self.root
     }
+
+    /// Returns whether confirmation also reconciles local backup history with the remote.
+    pub fn is_remote(&self) -> bool {
+        self.remote.is_some()
+    }
 }
 
 // ===== impl RestoreReport =====
@@ -129,6 +144,40 @@ impl BackupStore {
         selected: &[String],
     ) -> Result<RestorePlan> {
         let _lock = self.lock()?;
+        self.preview_restore_locked(workspace, revision, selected, None)
+    }
+
+    /// Fetches the current remote branch and previews its files without changing the source.
+    /// Confirmation preserves both backup histories; extra local files are kept.
+    pub fn preview_remote_restore(&self, workspace: Uuid) -> Result<RestorePlan> {
+        let _lock = self.lock()?;
+        let config = self.config()?;
+        let binding = self.workspace(&config, workspace)?;
+        let remote = config
+            .remote
+            .as_deref()
+            .context("Configure a backup remote first")?;
+        self.git.run(["fetch", "--prune", "origin"])?;
+        let revision = format!("refs/remotes/origin/{}", binding.branch);
+        ensure!(
+            self.git.reference(&revision)?.is_some(),
+            "No remote backup for this task; upload it from the other computer first"
+        );
+        let remote = RemoteRestore {
+            branch: binding.branch.clone(),
+            configuration: paths::digest(remote.as_bytes()),
+            local: self.git.reference(&binding.reference())?,
+        };
+        self.preview_restore_locked(workspace, &revision, &[], Some(remote))
+    }
+
+    fn preview_restore_locked(
+        &self,
+        workspace: Uuid,
+        revision: &str,
+        selected: &[String],
+        remote: Option<RemoteRestore>,
+    ) -> Result<RestorePlan> {
         let config = self.config()?;
         let binding = self.workspace(&config, workspace)?;
         let root = paths::root(&binding.root)?;
@@ -184,6 +233,7 @@ impl BackupStore {
             commit,
             created: timestamp()?,
             entries,
+            remote,
         };
         paths::atomic_write(&self.plan_path(plan.id), &serde_json::to_vec_pretty(&plan)?)?;
         Ok(plan)
@@ -284,31 +334,74 @@ impl BackupStore {
             }
             report.written.push(entry.path.clone());
         }
-        if report.error.is_none() {
-            let config = self.config()?;
-            let workspace = self.workspace(&config, plan.workspace)?;
-            let reference = workspace.reference();
-            let old = self.git.reference(&reference)?;
-            // A full restore can acknowledge a fetched fast-forward. Older or divergent
-            // versions are restored as working files without discarding local history.
-            if plan.entries.len() == self.blobs(&plan.commit)?.len()
-                && old
-                    .as_deref()
-                    .map(|old| self.git.ancestor(old, &plan.commit))
-                    .transpose()?
-                    .unwrap_or(true)
-                && let Err(error) = self
-                    .git
-                    .update_ref(&reference, &plan.commit, old.as_deref())
-            {
-                report.error = Some(format!("Files restored, but branch update failed: {error}"));
-            }
+        if report.error.is_none()
+            && let Err(error) = self.finish_restore(&plan)
+        {
+            report.error = Some(format!("Files restored, but branch update failed: {error}"));
         }
         paths::atomic_write(
             &report.recovery.join("result.json"),
             &serde_json::to_vec_pretty(&report)?,
         )?;
         Ok(report)
+    }
+
+    fn finish_restore(&self, plan: &RestorePlan) -> Result<()> {
+        let config = self.config()?;
+        let workspace = self.workspace(&config, plan.workspace)?;
+        let reference = workspace.reference();
+        let old = self.git.reference(&reference)?;
+        if plan.remote.is_some() {
+            let commit = if let Some(old) = &old
+                && !self.git.ancestor(old, &plan.commit)?
+            {
+                let tree = self
+                    .git
+                    .text(["rev-parse", &format!("{}^{{tree}}", plan.commit)])?;
+                let mut args = vec!["commit-tree", &tree, "-p", old];
+                if !self.git.ancestor(&plan.commit, old)? {
+                    args.extend(["-p", &plan.commit]);
+                }
+                // Adopt the confirmed tree while retaining both histories as ancestors.
+                // https://git-scm.com/docs/git-commit-tree
+                String::from_utf8(self.git.input(
+                    args,
+                    Some(b"Restore confirmed remote backup\n"),
+                    None,
+                )?)?
+                .trim()
+                .to_owned()
+            } else {
+                plan.commit.clone()
+            };
+            self.git.update_ref(&reference, &commit, old.as_deref())?;
+            self.save_report(&BackupReport {
+                workspace: plan.workspace,
+                changed: old.as_deref() != Some(commit.as_str()),
+                files: plan.entries.len(),
+                retained: self.manifest(&plan.commit, Some(plan.workspace))?.retained,
+                upload: if commit == plan.commit {
+                    UploadState::Synced
+                } else {
+                    UploadState::Pending
+                },
+                commit,
+            })?;
+            return Ok(());
+        }
+        // A full restore can acknowledge a fetched fast-forward. Older or divergent
+        // versions are restored as working files without discarding local history.
+        if plan.entries.len() == self.blobs(&plan.commit)?.len()
+            && old
+                .as_deref()
+                .map(|old| self.git.ancestor(old, &plan.commit))
+                .transpose()?
+                .unwrap_or(true)
+        {
+            self.git
+                .update_ref(&reference, &plan.commit, old.as_deref())?;
+        }
+        Ok(())
     }
 
     fn plan_path(&self, id: Uuid) -> PathBuf {
@@ -335,6 +428,33 @@ impl BackupStore {
         paths::disjoint(&plan.root, &self.data)?;
         self.manifest(&plan.commit, Some(plan.workspace))?;
         let blobs = self.blobs(&plan.commit)?;
+        if let Some(remote) = &plan.remote {
+            ensure!(
+                workspace.branch == remote.branch
+                    && config
+                        .remote
+                        .as_deref()
+                        .map(|url| paths::digest(url.as_bytes()))
+                        .as_ref()
+                        == Some(&remote.configuration),
+                "Backup remote changed after preview; fetch a new preview"
+            );
+            ensure!(
+                self.git.reference(&workspace.reference())? == remote.local,
+                "Local backup history changed after preview; fetch a new preview"
+            );
+            ensure!(
+                self.git
+                    .reference(&format!("refs/remotes/origin/{}", remote.branch))?
+                    .as_deref()
+                    == Some(plan.commit.as_str()),
+                "Fetched remote history changed after preview; fetch a new preview"
+            );
+            ensure!(
+                plan.entries.len() == blobs.len(),
+                "Remote restore requires the complete preview"
+            );
+        }
         let mut seen = std::collections::HashSet::new();
         for entry in &plan.entries {
             ensure!(seen.insert(&entry.path), "Duplicate restore path");
