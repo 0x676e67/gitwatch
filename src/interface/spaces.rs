@@ -512,6 +512,7 @@ mod tests {
         }
         let data = temp.path().join("unrelated");
         fs::create_dir(&data).unwrap();
+        let data = data.join(".");
         let file = data.join(".tmpminQ1r");
         for bytes in [
             b"user content".as_slice(),
@@ -525,8 +526,13 @@ mod tests {
                 Err(error) => error,
             };
             let message = format!("{error:#}");
-            assert!(message.contains("Directory is not an empty gitwatch store"));
-            assert!(message.contains(&data.to_string_lossy().to_string()));
+            let reported = message
+                .strip_prefix("Directory is not an empty gitwatch store: ")
+                .unwrap();
+            assert_eq!(
+                fs::canonicalize(reported).unwrap(),
+                fs::canonicalize(&data).unwrap()
+            );
             assert!(
                 Language::Chinese
                     .error(&message)
