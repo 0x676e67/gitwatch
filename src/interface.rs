@@ -457,14 +457,13 @@ impl Model {
                     match result {
                         Ok(text) => {
                             #[cfg(feature = "desktop")]
-                            {
-                                self.feedback = Some(if text == Text::from("Completed") {
-                                    Text::format("{0} — done", [self.operation.clone()])
-                                } else {
-                                    text.clone()
-                                });
-                            }
+                            let completed = (text == Text::from("Completed"))
+                                .then(|| Text::format("{0} — done", [self.operation.clone()]));
                             self.log(text);
+                            #[cfg(feature = "desktop")]
+                            if let Some(completed) = completed {
+                                self.feedback = Some(completed);
+                            }
                         }
                         Err(error) => {
                             let text = format!("{error:#}");
@@ -483,6 +482,10 @@ impl Model {
     }
 
     fn log(&mut self, text: Text) {
+        #[cfg(feature = "desktop")]
+        {
+            self.feedback = Some(text.clone());
+        }
         self.logs.push_back(text);
         while self.logs.len() > 200 {
             self.logs.pop_front();
@@ -1348,6 +1351,12 @@ mod tests {
         assert_eq!(
             model.rows[0].status.render(Language::English),
             "Changes pending"
+        );
+        #[cfg(feature = "desktop")]
+        assert_eq!(
+            model.feedback.as_ref().unwrap().render(Language::English),
+            "quic: Changes pending",
+            "Background activity must replace an older completion notice"
         );
         sender.send(Message::Rows(rows("Renamed"))).unwrap();
         sender
