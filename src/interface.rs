@@ -54,6 +54,8 @@ pub(crate) struct Row {
     pub draft: Draft,
     pub running: bool,
     pub status: Text,
+    #[cfg(feature = "desktop")]
+    pub backup: Option<crate::workspace::BackupReport>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -102,6 +104,10 @@ enum Message {
     Rows(Vec<Row>),
     Remote(Option<String>, bool),
     Status(Uuid, Text),
+    #[cfg(feature = "desktop")]
+    Backup(crate::workspace::BackupReport),
+    #[cfg(feature = "desktop")]
+    Upload(Uuid, crate::workspace::UploadState),
     Schedule(Uuid, Option<Instant>),
     History(Vec<HistoryEntry>),
     Branches(Vec<RemoteWorkspace>),
@@ -111,6 +117,10 @@ enum Message {
 }
 
 pub(crate) struct Model {
+    #[cfg(feature = "desktop")]
+    pub feedback: Option<Text>,
+    #[cfg(feature = "desktop")]
+    pub operation: Text,
     pub update: Option<crate::update::Release>,
     notifications: Option<crate::update::Notifications>,
     pub remote: Option<String>,
@@ -145,7 +155,7 @@ struct Worker {
 impl Kind {
     pub fn label(self, language: Language) -> &'static str {
         language.text(match self {
-            Self::Workspace => "Workspace backup",
+            Self::Workspace => "File backup",
             Self::Watch => "Git watch",
             Self::Pull => "Scheduled pull",
         })
@@ -313,6 +323,10 @@ impl Model {
             }
         });
         Self {
+            #[cfg(feature = "desktop")]
+            feedback: None,
+            #[cfg(feature = "desktop")]
+            operation: "Loading tasks…".into(),
             update: None,
             notifications,
             remote: None,
@@ -341,6 +355,11 @@ impl Model {
             return;
         }
         self.error = None;
+        #[cfg(feature = "desktop")]
+        {
+            self.operation = command.description(&self.rows);
+            self.feedback = None;
+        }
         match self.sender.send(command) {
             Ok(()) => self.busy = true,
             Err(_) => self.error = Some("Background controller is unavailable".into()),
@@ -376,12 +395,12 @@ impl Model {
                             .any(|row| row.running && row.draft.id == Some(*id))
                     });
                     for row in &mut rows {
-                        if row.running
-                            && row.status == Text::from("Running")
+                        if (row.status == Text::from("Running")
+                            || row.status == Text::from("Stopped; see activity"))
                             && let Some(previous) = self
                                 .rows
                                 .iter()
-                                .find(|r| r.running && r.draft.id == row.draft.id)
+                                .find(|r| r.draft.id == row.draft.id && (r.running || !row.running))
                         {
                             row.status.clone_from(&previous.status);
                         }
@@ -412,10 +431,41 @@ impl Model {
                         };
                     self.log(Text::format("{0}: {1}", [name, text]));
                 }
+                #[cfg(feature = "desktop")]
+                Message::Backup(report) => {
+                    if let Some(row) = self
+                        .rows
+                        .iter_mut()
+                        .find(|row| row.draft.id == Some(report.workspace))
+                    {
+                        row.backup = Some(report);
+                    }
+                }
+                #[cfg(feature = "desktop")]
+                Message::Upload(id, upload) => {
+                    if let Some(report) = self
+                        .rows
+                        .iter_mut()
+                        .find(|row| row.draft.id == Some(id))
+                        .and_then(|row| row.backup.as_mut())
+                    {
+                        report.upload = upload;
+                    }
+                }
                 Message::Done(result) => {
                     self.busy = false;
                     match result {
-                        Ok(text) => self.log(text),
+                        Ok(text) => {
+                            #[cfg(feature = "desktop")]
+                            {
+                                self.feedback = Some(if text == Text::from("Completed") {
+                                    Text::format("{0} — done", [self.operation.clone()])
+                                } else {
+                                    text.clone()
+                                });
+                            }
+                            self.log(text);
+                        }
                         Err(error) => {
                             let text = format!("{error:#}");
                             self.error = Some(text.clone());
@@ -449,6 +499,40 @@ impl Drop for Model {
     }
 }
 
+// ===== impl Command =====
+
+#[cfg(feature = "desktop")]
+impl Command {
+    fn description(&self, rows: &[Row]) -> Text {
+        let (label, id) = match self {
+            Self::Start(id) => ("Start automatic runs", Some(*id)),
+            Self::Stop(id) => ("Pause automatic runs", Some(*id)),
+            Self::Once(id) => ("Run once", Some(*id)),
+            Self::Push(id) => ("Upload saved backup", Some(*id)),
+            Self::History(id) => ("History", Some(*id)),
+            Self::Preview(id, ..) | Self::PreviewRemote(id) => ("Preview restore", Some(*id)),
+            Self::Remove(id) => ("Remove task", Some(*id)),
+            Self::Save(draft) => {
+                return Text::format("{0}: {1}", [Text::value(&draft.name), "Save task".into()]);
+            }
+            Self::Restore(_) => ("Restore files", None),
+            Self::Fetch => ("Refresh remote backups", None),
+            Self::ImportPreview(..) => ("Preview restore", None),
+            Self::Refresh => ("Refresh", None),
+            Self::Remote(..) => ("Save workspace settings", None),
+            Self::Language(_) | Self::StartInTray(_) => ("Save app settings", None),
+            Self::Reorder { .. } => ("Reorder tasks", None),
+            Self::Diff(..) | Self::Contents(..) => ("Compare files", None),
+            #[cfg(feature = "tui")]
+            Self::Import(..) => ("Import task", None),
+        };
+        match id.and_then(|id| rows.iter().find(|row| row.draft.id == Some(id))) {
+            Some(row) => Text::format("{0}: {1}", [Text::value(&row.draft.name), label.into()]),
+            None => label.into(),
+        }
+    }
+}
+
 // ===== impl Worker =====
 
 impl Worker {
@@ -475,9 +559,9 @@ impl Worker {
                 return Ok(());
             }
             if let Err(error) = self.command(Command::Start(id)) {
-                let _ = self
-                    .sender
-                    .send(Message::Status(id, Text::Error(format!("{error:#}"))));
+                let text = Text::Error(format!("{error:#}"));
+                self.states.insert(id, text.clone());
+                let _ = self.sender.send(Message::Status(id, text));
                 if !self.stop.is_stopped() {
                     self.remember(id, false)?;
                 }
@@ -538,10 +622,29 @@ impl Worker {
                     .and_then(|id| self.states.get(&id))
                     .cloned()
                     .unwrap_or_else(|| if running { "Running" } else { "Stopped" }.into());
+                #[cfg(feature = "desktop")]
+                let (status, backup) = if draft.kind == Kind::Workspace
+                    && let Some(id) = draft.id
+                {
+                    match self.store.status(id) {
+                        Ok(report) => (status, report),
+                        Err(error) => (
+                            Text::format(
+                                "Cannot read saved backup result: {0}",
+                                [Text::Error(format!("{error:#}"))],
+                            ),
+                            None,
+                        ),
+                    }
+                } else {
+                    (status, None)
+                };
                 Row {
                     draft,
                     running,
                     status,
+                    #[cfg(feature = "desktop")]
+                    backup,
                 }
             })
             .collect();
@@ -756,6 +859,16 @@ impl Worker {
                         return Ok(());
                     }
                     let report = |event| {
+                        #[cfg(feature = "desktop")]
+                        match &event {
+                            Event::Backup(report) => {
+                                let _ = sender.send(Message::Backup(report.clone()));
+                            }
+                            Event::Upload(upload) => {
+                                let _ = sender.send(Message::Upload(id, upload.clone()));
+                            }
+                            _ => {}
+                        }
                         let _ = sender.send(Message::Status(id, event_text(event)));
                     };
                     let result = (|| -> Result<()> {
@@ -864,8 +977,17 @@ impl Worker {
                 return Ok(Text::format("{0}: {1}", [Text::value(&draft.name), text]));
             }
             Command::Push(id) => {
-                self.store.push(id)?;
-                return Ok("Uploaded workspace branch".into());
+                let result = self.store.push(id);
+                let refreshed = self.refresh();
+                result?;
+                refreshed?;
+                return Ok(Text::format(
+                    "{0}: {1}",
+                    [
+                        Text::value(self.find(id)?.name),
+                        "Uploaded workspace branch".into(),
+                    ],
+                ));
             }
             Command::Remote(url, automatic) => {
                 ensure!(
@@ -1199,6 +1321,8 @@ mod tests {
                     },
                     running: true,
                     status: "Running".into(),
+                    #[cfg(feature = "desktop")]
+                    backup: None,
                 })
                 .collect()
         };
@@ -1268,6 +1392,10 @@ mod tests {
                 .starts_with("Missing source: ")
         );
         assert!(!model.rows[0].running);
+        assert!(
+            matches!(model.rows[0].status, Text::Error(_)),
+            "Stopping a failed task must keep the actionable diagnostic on its row"
+        );
     }
 
     #[test]
@@ -1436,12 +1564,18 @@ mod tests {
                 model.poll();
                 let complete = match kind {
                     Kind::Workspace => {
-                        BackupStore::open(&data)
+                        let history = BackupStore::open(&data)
                             .unwrap()
                             .history(id, None, 100)
-                            .unwrap()
-                            .len()
-                            == 2
+                            .unwrap();
+                        #[cfg(feature = "desktop")]
+                        let observed = model.rows[0]
+                            .backup
+                            .as_ref()
+                            .is_some_and(|report| report.commit() == history[0].commit());
+                        #[cfg(not(feature = "desktop"))]
+                        let observed = true;
+                        history.len() == 2 && observed
                     }
                     Kind::Watch => git(&source, &["show", "HEAD:notes.md"]) == "second",
                     Kind::Pull => {
@@ -1928,9 +2062,32 @@ mod tests {
         git(&remote, &["init", "--bare"]);
         command(
             &mut model,
+            Command::Remote(
+                temp.path()
+                    .join("unavailable.git")
+                    .to_string_lossy()
+                    .into_owned(),
+                false,
+            ),
+        );
+        model.send(Command::Push(id));
+        wait(&mut model);
+        assert!(model.error.is_some());
+        #[cfg(feature = "desktop")]
+        assert!(matches!(
+            model.rows[0].backup.as_ref().unwrap().upload(),
+            crate::workspace::UploadState::Failed { .. }
+        ));
+        command(
+            &mut model,
             Command::Remote(remote.to_string_lossy().into_owned(), false),
         );
         command(&mut model, Command::Push(id));
+        #[cfg(feature = "desktop")]
+        assert!(matches!(
+            model.rows[0].backup.as_ref().unwrap().upload(),
+            crate::workspace::UploadState::Synced
+        ));
         fs::write(source.join("notes.md"), "local edit before remote preview").unwrap();
         command(&mut model, Command::PreviewRemote(id));
         let plan = model.plan.as_ref().unwrap();
@@ -1961,6 +2118,53 @@ mod tests {
         wait(&mut model);
         assert_eq!(model.rows.len(), 2);
         assert!(model.rows.iter().all(|r| !r.running));
+        #[cfg(feature = "desktop")]
+        {
+            let report = model
+                .rows
+                .iter()
+                .find(|row| row.draft.id == Some(id))
+                .unwrap()
+                .backup
+                .as_ref()
+                .expect("Saved backup results must survive reopening the app");
+            assert_eq!(report.files(), 1);
+            assert!(matches!(
+                report.upload(),
+                crate::workspace::UploadState::Synced
+            ));
+            let state = temp.path().join("data/state").join(format!("{id}.json"));
+            let saved = fs::read(&state).unwrap();
+            fs::write(&state, b"invalid report").unwrap();
+            command(&mut model, Command::Refresh);
+            assert_eq!(
+                model.rows.len(),
+                2,
+                "An unreadable result must not hide other tasks"
+            );
+            let row = model
+                .rows
+                .iter()
+                .find(|row| row.draft.id == Some(id))
+                .unwrap();
+            assert!(row.backup.is_none());
+            assert!(
+                row.status
+                    .render(Language::English)
+                    .starts_with("Cannot read saved backup result:")
+            );
+            fs::write(&state, saved).unwrap();
+            command(&mut model, Command::Refresh);
+            assert!(
+                model
+                    .rows
+                    .iter()
+                    .find(|row| row.draft.id == Some(id))
+                    .unwrap()
+                    .backup
+                    .is_some()
+            );
+        }
         assert_eq!(
             model
                 .rows

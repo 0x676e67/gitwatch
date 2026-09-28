@@ -1,6 +1,8 @@
 //! Native desktop task management, history and explicit restore previews.
 
+mod history;
 mod icons;
+mod overview;
 mod repository;
 mod restore;
 mod theme;
@@ -15,7 +17,7 @@ use self::icons::Icon;
 use crate::{
     Result,
     i18n::Language,
-    interface::{Command, Draft, Kind, Model, lines, spaces::Sessions},
+    interface::{Command, Draft, Kind, Model, spaces::Sessions},
     pull::PullStrategy,
 };
 
@@ -56,6 +58,7 @@ struct Desktop {
     activity_open: bool,
     follow_logs: bool,
     history: usize,
+    history_open: bool,
     restore_files: String,
     confirm: bool,
     remove: bool,
@@ -118,9 +121,10 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
                 selected: None,
                 draft: None,
                 saving: false,
-                activity_open: true,
+                activity_open: false,
                 follow_logs: true,
                 history: 0,
+                history_open: false,
                 restore_files: String::new(),
                 confirm: false,
                 remove: false,
@@ -204,41 +208,75 @@ impl Desktop {
         let language = self.model.language;
         let before = self.spaces.selected();
         let mut selected = before;
-        ui.add_space(8.0);
         ui.add_enabled_ui(!self.spaces.busy(), |ui| {
             ui.horizontal_wrapped(|ui| {
                 egui::ComboBox::from_id_salt("workspace-selector")
+                    .width(180.0)
+                    .truncate()
                     .selected_text(self.spaces.label(language))
                     .show_ui(ui, |ui| {
                         for space in self.spaces.list() {
                             ui.selectable_value(&mut selected, space.id, space.label(language));
                         }
                     });
-                if ui.button(language.text("New workspace")).clicked() {
-                    self.space_form = Some(true);
-                    self.space_name.clear();
-                    self.space_remote.clear();
-                }
-                if !before.is_nil() {
-                    if ui.button(language.text("Rename workspace")).clicked() {
-                        self.space_form = Some(false);
-                        self.space_name = self.spaces.label(language).into();
+                ui.menu_button(language.text("Manage workspace"), |ui| {
+                    if ui.button(language.text("New workspace")).clicked() {
+                        self.space_form = Some(true);
+                        self.space_name.clear();
+                        self.space_remote.clear();
+                        ui.close();
                     }
-                    if ui
+                    if !before.is_nil() {
+                        if ui
+                            .add_enabled(
+                                !self.model.busy,
+                                egui::Button::new(language.text("Workspace settings")),
+                            )
+                            .clicked()
+                        {
+                            self.set_backup_settings(true);
+                            ui.close();
+                        }
+                        if ui.button(language.text("Rename workspace")).clicked() {
+                            self.space_form = Some(false);
+                            self.space_name = self.spaces.label(language).into();
+                            ui.close();
+                        }
+                        if ui
+                            .add_enabled(
+                                !self.model.busy && self.model.rows.is_empty(),
+                                egui::Button::new(language.text("Remove workspace")),
+                            )
+                            .on_hover_text(language.text(
+                                "Only empty workspaces can be removed. Backup data stays on disk.",
+                            ))
+                            .clicked()
+                        {
+                            self.spaces.remove(&mut self.model);
+                            ui.close();
+                        }
+                    }
+                });
+                if !before.is_nil()
+                    && ui
                         .add_enabled(
-                            !self.model.busy && self.model.rows.is_empty(),
-                            egui::Button::new(language.text("Remove workspace")),
+                            !self.model.busy && self.model.remote.is_some(),
+                            Icon::Download.button(language.text("Restore remote backup")),
                         )
-                        .on_hover_text(language.text(
-                            "Only empty workspaces can be removed. Backup data stays on disk.",
-                        ))
                         .clicked()
-                    {
-                        self.spaces.remove(&mut self.model);
-                    }
+                {
+                    self.settings = false;
+                    self.draft = None;
+                    self.restore = Some(restore::Flow::new(&mut self.model, None));
                 }
             });
         });
+        if let Some(remote) = &self.model.remote {
+            ui.add(egui::Label::new(RichText::new(remote).small().color(theme::MUTED)).truncate())
+                .on_hover_text(remote);
+        } else {
+            ui.small(language.text("Local workspace · backups stay on this computer"));
+        }
         if selected != before {
             self.spaces.switch(&mut self.model, selected);
         }
@@ -281,8 +319,34 @@ impl Desktop {
 
     fn task_list(&mut self, ui: &mut egui::Ui) {
         let language = self.model.language;
-        ui.heading(language.text("Tasks"));
-        ui.label(language.text("Started tasks resume when you reopen the app."));
+        ui.horizontal_wrapped(|ui| {
+            ui.heading(language.text("Tasks"));
+            if ui
+                .add_enabled(
+                    !self.model.busy,
+                    Icon::Add.button(language.text("Add task")),
+                )
+                .clicked()
+            {
+                self.draft = Some(Draft::default());
+                self.settings = false;
+            }
+        });
+        ui.small(
+            language.format(
+                "Tasks: {0} · Running: {1}",
+                &[
+                    &self.model.rows.len().to_string(),
+                    &self
+                        .model
+                        .rows
+                        .iter()
+                        .filter(|row| row.running)
+                        .count()
+                        .to_string(),
+                ],
+            ),
+        );
         egui::ScrollArea::vertical().id_salt("tasks").auto_shrink([false, false]).show(ui, |ui| {
                         if self.model.rows.is_empty() { ui.add_space(24.0); ui.label(language.text("Add a workspace backup, watch a Git repository, or schedule repository updates.")); }
                         let mut reorder = None;
@@ -313,16 +377,15 @@ impl Desktop {
                                             handle.on_hover_text(language.text("Drag to reorder"));
                                         });
                                     }
-                                if ui.selectable_label(self.selected == id, RichText::new(&row.draft.name).strong().size(18.0)).clicked() {
-                                    self.selected = id; self.settings = false; self.draft = None; self.model.history.clear(); self.model.plan = None; self.model.text.clear(); self.history = 0; self.confirm = false; self.remove = false;
+                                if ui.add(egui::Button::selectable(self.selected == id, RichText::new(&row.draft.name).strong().size(16.0)).truncate()).on_hover_text(&row.draft.path).clicked() {
+                                    self.selected = id; self.settings = false; self.draft = None; self.model.history.clear(); self.model.plan = None; self.model.text.clear(); self.history = 0; self.history_open = false; self.confirm = false; self.remove = false;
                                 }
                                 });
                                 ui.horizontal_wrapped(|ui| {
                                     ui.weak(row.draft.kind.label(language));
                                     ui.colored_label(if row.running { theme::ACCENT } else { theme::MUTED }, language.text(if row.running { "Running" } else { "Stopped" }));
                                 });
-                                ui.add(egui::Label::new(RichText::new(&row.draft.path).small().color(theme::MUTED)).wrap());
-                                ui.label(RichText::new(row.status.render(language)).small().color(theme::ACCENT));
+                                if overview::has_activity(&row.status) { ui.add(egui::Label::new(RichText::new(row.status.render(language)).small().color(overview::status_color(&row.status))).truncate()).on_hover_text(row.status.render(language)); }
                                 if row.draft.kind == Kind::Pull && row.running {
                                     let next = id.and_then(|id| self.model.pull_schedule.get(&id)).copied().flatten();
                                     ui.small(pull_countdown(next, language));
@@ -431,6 +494,21 @@ impl Desktop {
                     {
                         self.model.logs.clear();
                     }
+                } else if let Some(message) = self
+                    .model
+                    .feedback
+                    .as_ref()
+                    .or_else(|| self.model.logs.back())
+                {
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(message.render(language))
+                                .small()
+                                .color(overview::status_color(message)),
+                        )
+                        .truncate(),
+                    )
+                    .on_hover_text(message.render(language));
                 }
             });
             if open {
@@ -467,6 +545,7 @@ impl Desktop {
         self.settings = false;
         self.space_form = None;
         self.history = 0;
+        self.history_open = false;
         self.confirm = false;
         self.remove = false;
         self.restore_files.clear();
@@ -515,6 +594,7 @@ impl Desktop {
             self.model.plan = None;
             self.model.text.clear();
             self.history = 0;
+            self.history_open = false;
             self.confirm = false;
             self.remove = false;
         }
@@ -523,7 +603,7 @@ impl Desktop {
             .frame(
                 egui::Frame::new()
                     .fill(ui.visuals().panel_fill)
-                    .inner_margin(24),
+                    .inner_margin(16),
             )
             .show(ui, |ui| {
                 let mut selected_language = language;
@@ -544,10 +624,20 @@ impl Desktop {
                                 });
                         });
                         if ui
-                            .add(Icon::Settings.button(language.text("Settings")))
+                            .add(Icon::Settings.button(language.text("App settings")))
                             .clicked()
                         {
                             self.desktop_settings = !self.desktop_settings;
+                        }
+                        if ui
+                            .add_enabled(
+                                !self.model.busy,
+                                Icon::Refresh.button(language.text("Refresh")),
+                            )
+                            .clicked()
+                        {
+                            self.model.send(Command::Refresh);
+                            self.repository.refresh();
                         }
                     });
                 });
@@ -557,58 +647,6 @@ impl Desktop {
                         .global(&mut self.model, Command::Language(selected_language));
                 }
                 self.workspace_controls(ui);
-                ui.add_space(10.0);
-                ui.horizontal_wrapped(|ui| {
-                    if !self.spaces.selected().is_nil()
-                        && ui
-                            .add_enabled(
-                                !self.model.busy,
-                                Icon::Backup.button(language.text("Backup settings")),
-                            )
-                            .clicked()
-                    {
-                        self.set_backup_settings(!self.settings);
-                    }
-                    if !self.spaces.selected().is_nil()
-                        && ui
-                            .add_enabled(
-                                !self.model.busy && self.model.remote.is_some(),
-                                Icon::Download.button(language.text("Restore remote backup")),
-                            )
-                            .clicked()
-                    {
-                        self.settings = false;
-                        self.draft = None;
-                        self.restore = Some(restore::Flow::new(&mut self.model, None));
-                    }
-                    if ui
-                        .add_enabled(
-                            !self.model.busy,
-                            Icon::Add.button(language.text("Add task")),
-                        )
-                        .clicked()
-                    {
-                        self.draft = Some(Draft::default());
-                        self.settings = false;
-                    }
-                    if ui
-                        .add_enabled(
-                            !self.model.busy,
-                            Icon::Refresh.button(language.text("Refresh")),
-                        )
-                        .clicked()
-                    {
-                        self.model.send(Command::Refresh);
-                        self.repository.refresh();
-                    }
-                    if self.tray.is_some()
-                        && ui
-                            .add(Icon::Tray.button(language.text("Minimize to tray")))
-                            .clicked()
-                    {
-                        tray::hide(ui.ctx());
-                    }
-                });
                 ui.add_space(8.0);
                 ui.separator();
                 if let Some(release) = &self.model.update {
@@ -633,7 +671,8 @@ impl Desktop {
                 if self.model.busy {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label(language.text("Working in background…"));
+                        ui.add(egui::Label::new(self.model.operation.render(language)).truncate())
+                            .on_hover_text(self.model.operation.render(language));
                     });
                 }
                 let background_error = self.spaces.background_error(language);
@@ -671,7 +710,7 @@ impl Desktop {
                 self.activity(ui);
                 let width = ui.available_width();
                 egui::Panel::left("task-list-panel")
-                    .default_size(300.0)
+                    .default_size(260.0)
                     .size_range(220.0..=(width - 340.0).clamp(220.0, 520.0))
                     .resizable(true)
                     .show(ui, |ui| self.task_list(ui));
@@ -695,8 +734,34 @@ impl Desktop {
             if flow.show(ui.ctx(), &mut self.model) {
                 self.restore = None;
             }
+        } else if let Some(plan) = &self.model.plan {
+            let stopped = self
+                .model
+                .rows
+                .iter()
+                .any(|row| row.draft.id == Some(plan.workspace()) && !row.running);
+            let response =
+                egui::Modal::new(egui::Id::new("history-restore-preview")).show(ui.ctx(), |ui| {
+                    ui.set_width((ui.ctx().content_rect().width() - 64.0).clamp(280.0, 660.0));
+                    ui.heading(language.text("Preview restore"));
+                    if let Some(error) = &self.model.error {
+                        egui::ScrollArea::vertical()
+                            .id_salt("history-restore-error")
+                            .max_height(60.0)
+                            .show(ui, |ui| {
+                                ui.colored_label(Color32::LIGHT_RED, language.error(error));
+                            });
+                    }
+                    restore::preview(ui, &mut self.model, &mut self.confirm, stopped);
+                });
+            if !self.model.busy && response.should_close() {
+                self.model.plan = None;
+                self.confirm = false;
+            }
+        } else if self.history_open {
+            self.history_window(ui.ctx());
         }
-        egui::Window::new(language.text("Desktop settings"))
+        egui::Window::new(language.text("App settings"))
             .open(&mut self.desktop_settings)
             .collapsible(false)
             .resizable(false)
@@ -718,6 +783,13 @@ impl Desktop {
                 ui.label(language.text(
                     "Click the tray icon to show the window. Choose Quit in its menu to exit.",
                 ));
+                if self.tray.is_some()
+                    && ui
+                        .add(Icon::Tray.button(language.text("Minimize to tray")))
+                        .clicked()
+                {
+                    tray::hide(ui.ctx());
+                }
             });
     }
 }
@@ -726,7 +798,15 @@ impl Desktop {
     fn details(&mut self, ui: &mut egui::Ui) {
         let language = self.model.language;
         let Some(row) = self.model.rows.iter().find(|r| r.draft.id == self.selected) else {
-            ui.heading(language.text("Choose a task"));
+            ui.heading(language.text("Your files, with a history"));
+            ui.label(language.text("Add a task to back up files, watch a Git repository, or pull updates on a schedule."));
+            if self.model.remote.is_some() {
+                ui.label(language.text("Already have a backup on another computer? Choose Restore remote backup above."));
+            } else {
+                ui.label(language.text(
+                    "For backups across computers, create a workspace with a remote repository.",
+                ));
+            }
             return;
         };
         let Some(id) = row.draft.id else {
@@ -738,13 +818,20 @@ impl Desktop {
         let pull_strategy = draft.pull_strategy;
         let repository_path = draft.path.clone();
         let repository_remote = draft.remote.clone();
-        ui.heading(&draft.name);
+        ui.add(egui::Label::new(RichText::new(&draft.name).heading()).truncate())
+            .on_hover_text(&draft.name);
+        ui.add(egui::Label::new(RichText::new(&draft.path).small().color(theme::MUTED)).truncate())
+            .on_hover_text(&draft.path);
         ui.add_enabled_ui(!self.model.busy, |ui| {
             ui.horizontal_wrapped(|ui| {
+                let icon = if kind == Kind::Workspace { Icon::Backup } else { Icon::Once };
+                if ui.add(icon.button(language.text(overview::once_label(kind, self.model.auto_push && self.model.remote.is_some())))).clicked() {
+                    self.model.send(Command::Once(id));
+                }
                 if ui
                     .add(
                         (if running { Icon::Stop } else { Icon::Start })
-                            .button(language.text(if running { "Stop" } else { "Start" })),
+                            .button(language.text(if running { "Pause automatic runs" } else { "Start automatic runs" })),
                     )
                     .clicked()
                 {
@@ -754,25 +841,30 @@ impl Desktop {
                         Command::Start(id)
                     });
                 }
+                ui.menu_button(language.text("More actions"), |ui| {
                 if ui
-                    .add(Icon::Once.button(language.text("Run once")))
-                    .clicked()
-                {
-                    self.model.send(Command::Once(id));
-                }
-                if ui
-                    .add_enabled(!running, Icon::Edit.button(language.text("Edit")))
+                    .add_enabled(!running, Icon::Edit.button(language.text("Edit task")))
+                    .on_disabled_hover_text(language.text("Pause automatic runs before editing this task."))
                     .clicked()
                 {
                     self.draft = Some(draft);
+                    ui.close();
+                }
+                if kind == Kind::Workspace && self.model.remote.is_some() && ui.add(Icon::Upload.button(language.text("Upload saved backup"))).clicked() {
+                    self.model.send(Command::Push(id));
+                    ui.close();
                 }
                 if ui
                     .add_enabled(!running, Icon::Remove.button(language.text("Remove")))
                     .clicked()
                 {
                     self.remove = true;
+                    ui.close();
                 }
-                if kind == Kind::Workspace {
+                });
+            });
+            if kind == Kind::Workspace {
+                ui.horizontal_wrapped(|ui| {
                     if self.model.remote.is_some()
                         && ui.add_enabled(!running, Icon::Download.button(language.text("Restore from remote")))
                             .on_hover_text(language.text("Fetch the latest backup and preview changes before writing local files."))
@@ -784,17 +876,11 @@ impl Desktop {
                         .add(Icon::History.button(language.text("History")))
                         .clicked()
                     {
+                        self.history_open = true;
                         self.model.send(Command::History(id));
                     }
-                    if self.model.remote.is_some()
-                        && ui
-                            .add(Icon::Upload.button(language.text("Upload")))
-                            .clicked()
-                    {
-                        self.model.send(Command::Push(id));
-                    }
-                }
-            });
+                });
+            }
             if self.remove {
                 ui.label(language.text(if kind == Kind::Workspace {
                     "Remove this local binding? Backup history will be retained."
@@ -803,7 +889,7 @@ impl Desktop {
                 }));
                 ui.horizontal(|ui| {
                     if ui
-                        .add(Icon::Remove.button(language.text("Remove binding")))
+                        .add(Icon::Remove.button(language.text(if kind == Kind::Workspace { "Remove binding" } else { "Remove task" })))
                         .clicked()
                     {
                         self.model.send(Command::Remove(id));
@@ -819,9 +905,12 @@ impl Desktop {
             }
         });
         if kind != Kind::Workspace {
-            ui.add_space(16.0);
+            ui.add_space(8.0);
             egui::ScrollArea::vertical().id_salt("repository-details").auto_shrink([false, false]).show(ui, |ui| {
-                self.repository.show(ui, &repository_path, &repository_remote, language);
+                if let Some(row) = self.model.rows.iter().find(|row| row.draft.id == Some(id)) {
+                    overview::show(ui, row, &self.model);
+                }
+                egui::CollapsingHeader::new(language.text("Repository details")).show(ui, |ui| self.repository.show(ui, &repository_path, &repository_remote, language));
                 ui.add_space(12.0);
                 if kind == Kind::Pull {
                     ui.label(format!("{}: {}", language.text("Pull strategy"), pull_strategy.label(language)));
@@ -837,84 +926,13 @@ impl Desktop {
             .id_salt("details")
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                if let Some(row) = self.model.rows.iter().find(|row| row.draft.id == Some(id)) {
+                    overview::show(ui, row, &self.model);
+                }
                 egui::CollapsingHeader::new(language.text("Source repository")).show(ui, |ui| {
                     self.repository
                         .show(ui, &repository_path, "origin", language)
                 });
-                if self.model.plan.is_some() && self.restore.is_none() {
-                    restore::preview(ui, &mut self.model, &mut self.confirm, !running);
-                } else {
-                    ui.separator();
-                    ui.heading(language.text("History"));
-                    if self.model.history.is_empty() {
-                        ui.weak(language.text("Choose History to load saved versions."));
-                    }
-                    for (index, entry) in self.model.history.iter().enumerate() {
-                        if ui
-                            .selectable_label(
-                                self.history == index,
-                                format!(
-                                    "{}  {}",
-                                    entry.commit().get(..12).unwrap_or(entry.commit()),
-                                    entry.summary()
-                                ),
-                            )
-                            .clicked()
-                        {
-                            self.history = index;
-                        }
-                    }
-                    if let Some(entry) = self.model.history.get(self.history) {
-                        let revision = entry.commit().to_owned();
-                        let older = self
-                            .model
-                            .history
-                            .get(self.history + 1)
-                            .map(|e| e.commit().to_owned());
-                        ui.label(
-                            language.text("Restore selected paths (one per line; empty means all)"),
-                        );
-                        ui.text_edit_multiline(&mut self.restore_files);
-                        ui.horizontal(|ui| {
-                            if ui
-                                .add_enabled(
-                                    !self.model.busy && !running,
-                                    Icon::Preview.button(language.text("Preview restore")),
-                                )
-                                .clicked()
-                            {
-                                self.model.send(Command::Preview(
-                                    id,
-                                    revision.clone(),
-                                    lines(&self.restore_files),
-                                ));
-                            }
-                            if let Some(older) = older
-                                && ui
-                                    .add_enabled(
-                                        !self.model.busy,
-                                        Icon::Diff.button(language.text("Diff to previous")),
-                                    )
-                                    .clicked()
-                            {
-                                self.model.send(Command::Diff(id, older, revision));
-                            }
-                        });
-                        if running {
-                            ui.label(language.text("Stop this task before restoring."));
-                        }
-                    }
-                }
-                if self.model.plan.is_none() && !self.model.text.is_empty() {
-                    ui.separator();
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.model.text.render(language))
-                            .interactive(false)
-                            .font(egui::TextStyle::Monospace)
-                            .desired_rows(15)
-                            .desired_width(f32::INFINITY),
-                    );
-                }
             });
     }
 
@@ -961,6 +979,11 @@ impl Desktop {
                         if draft.kind == Kind::Watch { draft.remote.clear(); }
                     }
                 } else { ui.label(draft.kind.label(language)); }
+                ui.small(language.text(match draft.kind {
+                    Kind::Workspace => "Back up selected files without changing the source repository.",
+                    Kind::Watch => "Create commits directly in this repository when files change.",
+                    Kind::Pull => "Download updates into this repository on a schedule.",
+                }));
                 field(ui, language.text("Name"), &mut draft.name);
                 field(ui, language.text("Local path"), &mut draft.path);
                 ui.horizontal(|ui| {
@@ -1091,10 +1114,9 @@ impl Desktop {
         if self.spaces.selected().is_nil() {
             return;
         }
-        ui.heading(language.text("Workspace backup remote"));
-        ui.label(language.text(
-            "Enter a URL to replace the configured remote. Fetch only reads remote history.",
-        ));
+        ui.heading(language.text("Workspace settings"));
+        ui.label(self.spaces.label(language));
+        ui.label(language.text("Backups from this workspace are uploaded to this repository."));
         ui.add(
             egui::TextEdit::singleline(&mut self.remote)
                 .desired_width(f32::INFINITY)
@@ -1115,6 +1137,9 @@ impl Desktop {
                 {
                     self.model
                         .send(Command::Remote(self.remote.clone(), self.auto_push));
+                }
+                if ui.button(language.text("Back to task")).clicked() {
+                    self.settings = false;
                 }
             });
         });
@@ -1431,9 +1456,10 @@ mod tests {
             selected: None,
             draft: None,
             saving: false,
-            activity_open: true,
+            activity_open: false,
             follow_logs: true,
             history: 0,
+            history_open: false,
             restore_files: String::new(),
             confirm: false,
             remove: false,
@@ -1442,6 +1468,133 @@ mod tests {
             settings: false,
             restore: None,
         }
+    }
+
+    #[test]
+    fn task_overview_keeps_actions_and_results_visible() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("notes");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("notes.md"), "local notes").unwrap();
+        let mut app = fixture(temp.path());
+        settle(&mut app);
+        app.model.send(Command::Save(Draft {
+            name: "Notes".into(),
+            path: source.to_string_lossy().into_owned(),
+            includes: "notes.md".into(),
+            ..Draft::default()
+        }));
+        settle(&mut app);
+        let id = app.model.rows[0].draft.id.unwrap();
+        app.model.send(Command::Once(id));
+        settle(&mut app);
+        let context = egui::Context::default();
+        theme::apply(&context);
+        context.all_styles_mut(|style| style.animation_time = 0.0);
+        configure_fonts(&context);
+        let visible = |output: &egui::FullOutput, label: &str, size: egui::Vec2| {
+            assert!(
+                output.shapes.iter().any(|shape| {
+                    if let egui::Shape::Text(text) = &shape.shape
+                        && text.galley.job.text == label
+                    {
+                        let rect = egui::Rect::from_min_size(text.pos, text.galley.size());
+                        shape.clip_rect.contains_rect(rect)
+                            && egui::Rect::from_min_size(egui::Pos2::ZERO, size).contains_rect(rect)
+                    } else {
+                        false
+                    }
+                }),
+                "Not fully visible: {label}"
+            );
+        };
+        for language in [Language::English, Language::Chinese] {
+            app.spaces
+                .global(&mut app.model, Command::Language(language));
+            settle(&mut app);
+            for size in [egui::vec2(800.0, 560.0), egui::vec2(1140.0, 780.0)] {
+                render_sized(&mut app, &context, vec![], size);
+                let output = render_sized(&mut app, &context, vec![], size);
+                for label in [
+                    "Back up now",
+                    "Start automatic runs",
+                    "Current status",
+                    "Latest saved backup",
+                    "Saved on this computer",
+                    "History",
+                ] {
+                    visible(&output, language.text(label), size);
+                }
+            }
+            for (kind, label) in [(Kind::Pull, "Pull now"), (Kind::Watch, "Commit changes")] {
+                app.model.rows[0].draft.kind = kind;
+                app.model.rows[0].draft.name = "A long task name ".repeat(30);
+                app.model.rows[0].draft.path =
+                    format!("/projects/{}", "folder with spaces/".repeat(70));
+                app.model.rows[0].status =
+                    crate::i18n::Text::Error("An actionable error. ".repeat(80));
+                let size = egui::vec2(800.0, 560.0);
+                render_sized(&mut app, &context, vec![], size);
+                let output = render_sized(&mut app, &context, vec![], size);
+                for label in [
+                    label,
+                    "Start automatic runs",
+                    "More actions",
+                    "Current status",
+                ] {
+                    visible(&output, language.text(label), size);
+                }
+            }
+            app.model.send(Command::Refresh);
+            settle(&mut app);
+        }
+        let escape = || {
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }]
+        };
+        let language = app.model.language;
+        click(&mut app, &context, language.text("History"));
+        settle(&mut app);
+        render(&mut app, &context, vec![]);
+        render(&mut app, &context, escape());
+        assert!(!app.history_open);
+        assert_eq!(
+            fs::read_to_string(source.join("notes.md")).unwrap(),
+            "local notes"
+        );
+        fs::write(source.join("notes.md"), "unconfirmed local changes").unwrap();
+        click(&mut app, &context, language.text("History"));
+        settle(&mut app);
+        click(&mut app, &context, language.text("Preview restore"));
+        settle(&mut app);
+        render(&mut app, &context, vec![]);
+        app.model.busy = true;
+        render(&mut app, &context, escape());
+        assert!(
+            app.model.plan.is_some(),
+            "A busy restore cannot be dismissed"
+        );
+        app.model.busy = false;
+        render(&mut app, &context, escape());
+        assert!(app.model.plan.is_none());
+        drop(app);
+        let mut app = fixture(temp.path());
+        settle(&mut app);
+        let report = app.model.rows[0].backup.as_ref().unwrap();
+        assert_eq!(report.files(), 1);
+        assert!(matches!(
+            report.upload(),
+            crate::workspace::UploadState::Disabled
+        ));
+        assert_eq!(
+            fs::read_to_string(source.join("notes.md")).unwrap(),
+            "unconfirmed local changes"
+        );
     }
 
     #[test]
@@ -1512,7 +1665,7 @@ mod tests {
         }
         click(&mut app, &context, "Add task");
         app.draft.as_mut().unwrap().name = "Keep my input".into();
-        click(&mut app, &context, "Workspace backup");
+        click(&mut app, &context, "File backup");
         click(&mut app, &context, "Git watch");
         assert_eq!(app.draft.as_ref().unwrap().kind, Kind::Watch);
         assert!(app.draft.as_ref().unwrap().remote.is_empty());
@@ -1546,6 +1699,7 @@ mod tests {
         );
         app.model.error = None;
         click(&mut app, &context, "Cancel");
+        click(&mut app, &context, "Activity");
         click(&mut app, &context, "Follow latest");
         assert!(!app.follow_logs);
         app.model.logs = (0..100)
@@ -1624,7 +1778,7 @@ mod tests {
         seed.set_remote(Some(remote.to_str().unwrap()), true)
             .unwrap();
         seed.backup(task.id()).unwrap();
-        let destination = temp.path().join("destination");
+        let destination = temp.path().join("destination-with-a-long-name-".repeat(5));
         fs::create_dir(&destination).unwrap();
         let file = destination.join("notes.md");
         let mut app = fixture(temp.path());
@@ -1755,7 +1909,7 @@ mod tests {
         let preferences = fs::read_to_string(temp.path().join("data/preferences.json")).unwrap();
         assert!(preferences.contains("zh-CN"));
         let language = app.model.language;
-        click(&mut app, &context, language.text("Settings"));
+        click(&mut app, &context, language.text("App settings"));
         click(&mut app, &context, language.text("Start minimized to tray"));
         settle(&mut app);
         assert!(app.model.start_in_tray);
@@ -1795,7 +1949,7 @@ mod tests {
             assert!(!app.settings && app.draft.is_none());
             assert_eq!(app.selected, selected);
         }
-        click(&mut app, &context, language.text("Run once"));
+        click(&mut app, &context, language.text("Back up now"));
         settle(&mut app);
         click(&mut app, &context, language.text("History"));
         settle(&mut app);
@@ -1815,10 +1969,11 @@ mod tests {
         click(&mut app, &context, language.text("Confirm restore"));
         settle(&mut app);
         assert_eq!(fs::read_to_string(&file).unwrap(), "saved");
-        click(&mut app, &context, language.text("Start"));
+        click(&mut app, &context, language.text("Back to task"));
+        click(&mut app, &context, language.text("Start automatic runs"));
         settle(&mut app);
         assert!(app.model.rows[0].running);
-        click(&mut app, &context, language.text("Run once"));
+        click(&mut app, &context, language.text("Back up now"));
         settle(&mut app);
         assert!(app.model.rows[0].running);
         assert!(
@@ -1827,7 +1982,7 @@ mod tests {
                 .iter()
                 .any(|text| text.render(language) == language.text("Run once requested"))
         );
-        click(&mut app, &context, language.text("Stop"));
+        click(&mut app, &context, language.text("Pause automatic runs"));
         settle(&mut app);
         click(&mut app, &context, "简体中文");
         click(&mut app, &context, "English");
@@ -1846,6 +2001,7 @@ mod tests {
         }));
         settle(&mut app);
         assert!(!app.model.history.is_empty());
+        click(&mut app, &context, "More actions");
         click(&mut app, &context, "Remove");
         click(&mut app, &context, "Remove binding");
         settle(&mut app);
@@ -1858,7 +2014,8 @@ mod tests {
             ("Fast-forward only", "Merge", PullStrategy::Merge),
             ("Merge", "Rebase", PullStrategy::Rebase),
         ] {
-            click(&mut app, &context, "Edit");
+            click(&mut app, &context, "More actions");
+            click(&mut app, &context, "Edit task");
             click(&mut app, &context, previous);
             click(&mut app, &context, next);
             click(&mut app, &context, "Save task");
@@ -1868,7 +2025,8 @@ mod tests {
         click(&mut app, &context, "English");
         click(&mut app, &context, "简体中文");
         settle(&mut app);
-        click(&mut app, &context, "编辑");
+        click(&mut app, &context, "更多操作");
+        click(&mut app, &context, "编辑任务");
         click(&mut app, &context, "变基");
         click(&mut app, &context, "仅快进");
         click(&mut app, &context, "保存任务");
@@ -1909,6 +2067,7 @@ mod tests {
         drag_task(&mut app, &context, original[0], original[1], true, true);
         assert_eq!(ids(&app), original);
 
+        click(&mut app, &context, "管理工作空间");
         click(&mut app, &context, "新建工作空间");
         assert_eq!(app.space_form, Some(true));
         app.space_name = "Personal".into();
@@ -1922,6 +2081,7 @@ mod tests {
         assert!(app.model.rows.is_empty());
         assert!(app.model.history.is_empty() && app.model.plan.is_none());
         assert!(app.selected.is_none() && app.draft.is_none() && !app.settings);
+        click(&mut app, &context, "管理工作空间");
         click(&mut app, &context, "重命名工作空间");
         app.space_name = "Private".into();
         click(&mut app, &context, "保存");
@@ -1930,6 +2090,7 @@ mod tests {
         click(&mut app, &context, "English");
         settle(&mut app);
         assert_eq!(app.model.language, Language::English);
+        click(&mut app, &context, "Manage workspace");
         click(&mut app, &context, "Remove workspace");
         settle(&mut app);
         assert!(app.spaces.selected().is_nil());
