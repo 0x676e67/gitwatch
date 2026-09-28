@@ -9,10 +9,13 @@ use gitwatch::update::Notifications;
 #[test]
 fn notifications_use_cached_versions_without_network_or_git() {
     let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("update-check.json");
+    let cache = temp.path().join("cache");
+    fs::create_dir(&cache).unwrap();
+    fs::write(cache.join(".tmpminQ1r"), "interrupted cache write").unwrap();
+    let path = cache.join("update-check.json");
     let bytes = serde_json::to_vec(&serde_json::json!({"checked":SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),"release":{"version":"99.0.0"}})).unwrap();
     fs::write(&path, &bytes).unwrap();
-    let notifications = Notifications::start(Some(temp.path().to_owned()));
+    let notifications = Notifications::start(Some(cache.clone()));
     let deadline = Instant::now() + Duration::from_secs(3);
     let release = loop {
         if let Some(release) = notifications.poll() {
@@ -31,8 +34,8 @@ fn notifications_use_cached_versions_without_network_or_git() {
     );
     assert!(notifications.poll().is_none());
     assert_eq!(fs::read(path).unwrap(), bytes);
-    assert!(!temp.path().join("backup.git").exists());
-    gitwatch::workspace::BackupStore::open(temp.path()).unwrap();
+    assert!(!cache.join("backup.git").exists());
+    assert!(!cache.join("store.lock").exists());
 }
 
 #[test]

@@ -31,7 +31,7 @@ anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4.6", features = ["derive", "env", "string"] }
 ctrlc = "3.5"
-directories = "6"
+dirs = "6"
 dunce = "1"
 fs2 = "0.4"
 globset = "0.4"

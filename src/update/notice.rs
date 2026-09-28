@@ -9,7 +9,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use super::Release;
-use crate::{Result, git::Lock, paths, workspace::BackupStore};
+use crate::{Result, git::Lock, paths};
 
 const INTERVAL: u64 = 24 * 60 * 60;
 
@@ -28,14 +28,15 @@ struct Cache {
 
 impl Notifications {
     /// Starts a daily check without delaying startup or reporting network failures.
-    pub fn start(data: Option<PathBuf>) -> Self {
+    /// Uses the system cache unless an explicit cache directory is supplied.
+    pub fn start(cache: Option<PathBuf>) -> Self {
         let (sender, receiver) = mpsc::channel();
         let (stop, stopped) = mpsc::channel();
         if !cfg!(test)
             && std::env::var_os("GITWATCH_NO_UPDATE_CHECK").is_none_or(|value| value != "1")
         {
             thread::spawn(move || {
-                let Ok(directory) = data.map_or_else(BackupStore::default_directory, Ok) else {
+                let Ok(directory) = cache.map_or_else(paths::cache_directory, Ok) else {
                     return;
                 };
                 let mut shown = String::new();
@@ -84,18 +85,11 @@ fn cached(directory: &std::path::Path) -> Result<Option<Release>> {
     if cache.checked > now || now.saturating_sub(cache.checked) >= INTERVAL {
         // Persist the attempt first so offline launches do not repeatedly hit the API.
         cache.checked = now;
-        save(directory, &path, &cache)?;
+        paths::atomic_write(&path, &serde_json::to_vec(&cache)?)?;
         if let Ok(release) = Release::query(None, Duration::from_secs(3)) {
             cache.release = Some(release);
-            save(directory, &path, &cache)?;
+            paths::atomic_write(&path, &serde_json::to_vec(&cache)?)?;
         }
     }
     Ok(cache.release)
-}
-
-fn save(directory: &std::path::Path, path: &std::path::Path, cache: &Cache) -> Result<()> {
-    // Initialization also takes this lock, so it cannot mistake our temporary file
-    // for an unrelated file while checking a new store directory.
-    let _lock = Lock::wait(&directory.join("store.lock"))?;
-    paths::atomic_write(path, &serde_json::to_vec(cache)?)
 }

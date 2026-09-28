@@ -19,6 +19,12 @@ struct Args {
 fn main() {
     if let Err(error) = run() {
         eprintln!("{error:#}");
+        rfd::MessageDialog::new()
+            .set_title("gitwatch")
+            .set_level(rfd::MessageLevel::Error)
+            .set_description(format!("{error:#}"))
+            .set_buttons(rfd::MessageButtons::Ok)
+            .show();
         std::process::exit(1);
     }
 }

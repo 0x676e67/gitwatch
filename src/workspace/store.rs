@@ -33,7 +33,7 @@ pub(crate) struct Blob {
 
 impl BackupStore {
     /// Opens an existing store or initializes an empty directory.
-    /// Refuses unrelated contents; local language preferences may already exist.
+    /// Refuses unrelated contents; known startup metadata may already exist.
     pub fn open(data: impl AsRef<Path>) -> Result<Self> {
         fs::create_dir_all(data.as_ref())?;
         let data = paths::root(data.as_ref())?;
@@ -42,17 +42,13 @@ impl BackupStore {
         if !config_path.exists() {
             ensure!(
                 fs::read_dir(&data)?.all(|entry| entry.is_ok_and(|e| {
-                    [
-                        "store.lock",
-                        "preferences.json",
-                        "update-check.json",
-                        "update-check.lock",
-                    ]
-                    .iter()
-                    .any(|name| e.file_name() == *name)
+                    ["store.lock", "preferences.json"]
+                        .iter()
+                        .any(|name| e.file_name() == *name)
                         && e.file_type().is_ok_and(|kind| kind.is_file())
                 })),
-                "Directory is not an empty gitwatch store"
+                "Directory is not an empty gitwatch store: {}",
+                data.display()
             );
             let staging = tempfile::tempdir_in(&data)?;
             git::init_bare(&staging.path().join("backup.git"))?;
@@ -80,10 +76,7 @@ impl BackupStore {
 
     /// Returns the platform-specific default store directory.
     pub fn default_directory() -> Result<PathBuf> {
-        Ok(directories::ProjectDirs::from("", "", "gitwatch")
-            .context("Cannot locate user data directory")?
-            .data_local_dir()
-            .to_path_buf())
+        paths::data_directory()
     }
 
     /// Returns the local data directory, including recovery copies.

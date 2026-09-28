@@ -253,7 +253,7 @@ impl Model {
 
     fn open(data: Option<PathBuf>, language: Language, scope: Scope) -> Self {
         let notifications =
-            (scope != Scope::Remote).then(|| crate::update::Notifications::start(data.clone()));
+            (scope != Scope::Remote).then(|| crate::update::Notifications::start(None));
         let (sender, commands) = mpsc::channel();
         let (messages, receiver) = mpsc::channel();
         let stop = StopToken::default();

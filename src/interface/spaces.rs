@@ -488,6 +488,62 @@ mod tests {
     }
 
     #[test]
+    fn fresh_sessions_preserve_preferences_and_reject_unrelated_files() {
+        let temp = tempfile::tempdir().unwrap();
+        for name in ["fresh", "preferences"] {
+            let data = temp.path().join(name);
+            if name == "preferences" {
+                Language::Chinese.save(&data).unwrap();
+            }
+            let (mut sessions, mut model) =
+                Sessions::new(Some(data.clone()), Language::English).unwrap();
+            wait(&mut sessions, &mut model);
+            assert!(model.error.is_none(), "{:?}", model.error);
+            assert!(model.rows.is_empty());
+            assert_eq!(sessions.selected(), Uuid::nil());
+            assert!(data.join("config.json").is_file());
+            assert!(data.join("backup.git").is_dir());
+            if name == "preferences" {
+                assert_eq!(
+                    Language::resolve(None, Some(&data)).unwrap(),
+                    Language::Chinese
+                );
+            }
+        }
+        let data = temp.path().join("unrelated");
+        fs::create_dir(&data).unwrap();
+        let data = data.join(".");
+        let file = data.join(".tmpminQ1r");
+        for bytes in [
+            b"user content".as_slice(),
+            br#"{"checked":1790528861,"release":null}"#,
+            br#"{"checked":1,"release":null,"private":true}"#,
+            br#"{"checked":1"#,
+        ] {
+            fs::write(&file, bytes).unwrap();
+            let error = match Sessions::new(Some(data.clone()), Language::English) {
+                Ok(_) => panic!("Unrelated contents were accepted"),
+                Err(error) => error,
+            };
+            let message = format!("{error:#}");
+            let reported = message
+                .strip_prefix("Directory is not an empty gitwatch store: ")
+                .unwrap();
+            assert_eq!(
+                fs::canonicalize(reported).unwrap(),
+                fs::canonicalize(&data).unwrap()
+            );
+            assert!(
+                Language::Chinese
+                    .error(&message)
+                    .starts_with("此目录不是空的 gitwatch 数据目录: ")
+            );
+            assert_eq!(fs::read(&file).unwrap(), bytes);
+            assert!(!data.join("backup.git").exists());
+        }
+    }
+
+    #[test]
     fn legacy_tasks_and_background_controllers_survive_switches_and_restart() {
         let temp = tempfile::tempdir().unwrap();
         let data = temp.path().join("data");
