@@ -62,7 +62,7 @@ impl Flow {
         }
         let language = model.language;
         let mut close = false;
-        egui::Modal::new(egui::Id::new("remote-restore-flow")).show(context, |ui| {
+        let response = egui::Modal::new(egui::Id::new("remote-restore-flow")).show(context, |ui| {
             ui.set_width((context.content_rect().width() - 64.0).clamp(280.0, 660.0));
             ui.heading(language.text("Restore remote backup"));
             ui.label(language.text(match self.step {
@@ -121,7 +121,8 @@ impl Flow {
                 }
                 Step::Complete => {
                     ui.label(language.text("The backup files are now in your local directory."));
-                    ui.label(language.format("Destination: {0}", &[&self.path]));
+                    let destination = language.format("Destination: {0}", &[&self.path]);
+                    ui.add(egui::Label::new(&destination).truncate()).on_hover_text(&destination);
                     if let Some(row) = model.rows.iter().find(|row| row.draft.id == self.task) {
                         ui.label(row.status.render(language));
                     }
@@ -141,6 +142,7 @@ impl Flow {
                 }
             }
         });
+        close |= !model.busy && response.should_close();
         if close {
             model.plan = None;
             model.text.clear();
@@ -153,7 +155,7 @@ impl Flow {
         let mut command = None;
         ui.add_enabled_ui(!model.busy, |ui| {
             if let Some(remote) = &model.remote {
-                ui.label(remote);
+                ui.add(egui::Label::new(remote).truncate()).on_hover_text(remote);
             }
             if model.branches.is_empty() && !model.busy && model.error.is_none() {
                 ui.label(
@@ -163,6 +165,8 @@ impl Flow {
             }
             let previous = self.branch;
             egui::ComboBox::from_label(language.text("Backup"))
+                .width(240.0)
+                .truncate()
                 .selected_text(
                     model
                         .branches
@@ -253,8 +257,14 @@ pub(super) fn preview(
         return false;
     };
     ui.label(language.text("Preview only — no files have been written."));
-    ui.label(language.format("Destination: {0}", &[&plan.root().display().to_string()]));
-    ui.label(language.format("Version: {0}", &[plan.commit()]));
+    let destination = language.format("Destination: {0}", &[&plan.root().display().to_string()]);
+    ui.add(egui::Label::new(&destination).truncate())
+        .on_hover_text(&destination);
+    ui.label(language.format(
+        "Version: {0}",
+        &[plan.commit().get(..12).unwrap_or(plan.commit())],
+    ))
+    .on_hover_text(plan.commit());
     let mut counts = [0usize; 3];
     for entry in plan.entries() {
         use crate::workspace::Change;

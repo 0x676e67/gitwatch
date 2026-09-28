@@ -1,5 +1,108 @@
 // English source messages are stable keys. Numbered values are inserted verbatim.
 pub(super) const TEXT: &[(&str, &str)] = &[
+    (
+        "Cannot read saved backup result: {0}",
+        "无法读取备份结果：{0}",
+    ),
+    ("File backup", "文件备份"),
+    ("Remove task", "移除任务"),
+    ("Restore files", "恢复文件"),
+    ("Save workspace settings", "保存工作空间设置"),
+    ("Save app settings", "保存应用设置"),
+    ("Reorder tasks", "调整任务顺序"),
+    ("Compare files", "比较文件"),
+    (
+        "No saved versions yet. Run a backup first.",
+        "尚无历史版本，请先执行一次备份。",
+    ),
+    ("App settings", "应用设置"),
+    ("Manage workspace", "管理工作空间"),
+    ("Workspace settings", "工作空间设置"),
+    (
+        "Local workspace · backups stay on this computer",
+        "本地工作空间 · 备份保存在此电脑",
+    ),
+    ("Tasks: {0} · Running: {1}", "{0} 个任务 · {1} 个运行中"),
+    ("Back up & upload", "备份并上传"),
+    ("Back up now", "立即备份"),
+    ("Commit changes", "提交更改"),
+    ("Pull now", "立即拉取"),
+    ("Pause automatic runs", "暂停自动运行"),
+    ("Start automatic runs", "启动自动运行"),
+    (
+        "Pause automatic runs before editing this task.",
+        "请先暂停自动运行，再编辑此任务。",
+    ),
+    ("More actions", "更多操作"),
+    ("Upload saved backup", "上传已保存的备份"),
+    ("Current status", "当前状态"),
+    ("Automatic runs on", "自动运行已开启"),
+    ("Automatic runs off", "自动运行已关闭"),
+    ("Latest saved backup", "最近保存的备份"),
+    ("Files: {0} · {1}", "{0} 个文件 · {1}"),
+    ("Saved on this computer", "已保存在此电脑"),
+    (
+        "Saved locally · not uploaded yet",
+        "已保存到本地 · 尚未上传",
+    ),
+    ("Saved locally · uploaded", "已保存到本地 · 已上传"),
+    ("Saved locally · upload failed", "已保存到本地 · 上传失败"),
+    (
+        "Retry with Upload saved backup in More actions.",
+        "可在“更多操作”中点击“上传已保存的备份”重试。",
+    ),
+    (
+        "No saved backup result available.",
+        "暂无可显示的备份结果。",
+    ),
+    (
+        "Selected files are saved to a separate backup repository, then uploaded. Source files stay unchanged.",
+        "所选文件会保存到独立备份仓库并上传，源文件保持不变。",
+    ),
+    (
+        "Selected files are saved to a separate local backup repository. Source files stay unchanged.",
+        "所选文件会保存到独立的本地备份仓库，源文件保持不变。",
+    ),
+    (
+        "Changes are committed in this Git repository. Upload follows the task's remote setting.",
+        "更改会直接提交到此 Git 仓库，是否上传由任务的远程设置决定。",
+    ),
+    (
+        "Pull updates this local repository using the selected strategy.",
+        "拉取会按所选策略更新此本地仓库。",
+    ),
+    ("Repository details", "仓库详情"),
+    ("Your files, with a history", "为文件保留历史"),
+    (
+        "Add a task to back up files, watch a Git repository, or pull updates on a schedule.",
+        "添加任务来备份文件、监听 Git 仓库，或定时拉取更新。",
+    ),
+    (
+        "Already have a backup on another computer? Choose Restore remote backup above.",
+        "已有另一台电脑的备份？点击上方的“恢复远程备份”。",
+    ),
+    (
+        "For backups across computers, create a workspace with a remote repository.",
+        "如需跨电脑备份，请创建工作空间并配置远程仓库。",
+    ),
+    (
+        "Back up selected files without changing the source repository.",
+        "备份所选文件，不修改源仓库。",
+    ),
+    (
+        "Create commits directly in this repository when files change.",
+        "文件更改时，直接在此仓库创建提交。",
+    ),
+    (
+        "Download updates into this repository on a schedule.",
+        "定时下载更新到此仓库。",
+    ),
+    (
+        "Backups from this workspace are uploaded to this repository.",
+        "此工作空间的备份会上传到这个仓库。",
+    ),
+    ("Loading tasks…", "正在读取任务…"),
+    ("{0} — done", "{0} — 已完成"),
     ("Restore remote backup", "恢复远程备份"),
     ("1. Choose backup and destination", "1. 选择备份和目标目录"),
     ("2. Review and confirm", "2. 预览并确认"),
