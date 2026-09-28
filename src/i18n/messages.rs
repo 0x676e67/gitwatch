@@ -1,5 +1,10 @@
 // English source messages are stable keys. Numbered values are inserted verbatim.
 pub(super) const TEXT: &[(&str, &str)] = &[
+    ("Stopping tasks…", "正在停止任务…"),
+    (
+        "Waiting for current operations to finish safely.",
+        "正在等待当前操作安全结束。",
+    ),
     (
         "Cannot lock the gitwatch data store",
         "无法锁定 gitwatch 数据仓库",

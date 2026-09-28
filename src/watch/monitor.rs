@@ -28,6 +28,7 @@ pub struct StopToken(Arc<Signals>);
 struct Signals {
     stopped: AtomicBool,
     run_once: AtomicBool,
+    parent: Option<StopToken>,
 }
 
 /// Timing and event-source settings, independent from either storage mode.
@@ -76,6 +77,16 @@ impl StopToken {
     /// Returns whether shutdown was requested.
     pub fn is_stopped(&self) -> bool {
         self.0.stopped.load(Ordering::Relaxed)
+            || self.0.parent.as_ref().is_some_and(Self::is_stopped)
+    }
+
+    /// Inherits shutdown without sharing manual run or per-task stop requests.
+    #[cfg(any(feature = "desktop", feature = "tui"))]
+    pub(crate) fn child(&self) -> Self {
+        Self(Arc::new(Signals {
+            parent: Some(self.clone()),
+            ..Signals::default()
+        }))
     }
 
     /// Coalesces pending requests for the task's next safe operation boundary.
@@ -391,6 +402,9 @@ fn run(
         if stop.take_once() {
             dirty = Some((now, now));
         }
+        if stop.is_stopped() {
+            break;
+        }
         if dirty.is_some_and(|(first, deadline)| {
             now >= deadline || now.duration_since(first) >= options.max_wait
         }) {
@@ -414,7 +428,7 @@ fn run(
                 }
             }
         }
-        if now >= next_retry {
+        if !stop.is_stopped() && now >= next_retry {
             let failed = match job.retry() {
                 Ok(Some(state)) => {
                     let failed = matches!(state, UploadState::Failed { .. });

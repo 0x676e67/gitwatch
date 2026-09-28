@@ -20,6 +20,7 @@ use crate::{
 struct Screen {
     model: Model,
     spaces: Sessions,
+    closing: bool,
     space_menu: bool,
     space_index: usize,
     space_form: Option<bool>,
@@ -60,6 +61,7 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
     let mut screen = Screen {
         model,
         spaces,
+        closing: false,
         space_menu: false,
         space_index: 0,
         space_form: None,
@@ -80,7 +82,10 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
         auto_push: false,
     };
     loop {
-        if screen.spaces.poll(&mut screen.model) {
+        if screen.closing && screen.spaces.shutdown_finished(&screen.model) {
+            break;
+        }
+        if !screen.closing && screen.spaces.poll(&mut screen.model) {
             screen.clear_workspace();
         }
         terminal.draw(|frame| screen.draw(frame))?;
@@ -93,19 +98,36 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
         if key.kind == KeyEventKind::Release {
             continue;
         }
-        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-            break;
+        if screen.closing {
+            continue;
         }
-        if !screen.key(key.code, key.modifiers) {
-            break;
+        if (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
+            || !screen.key(key.code, key.modifiers)
+        {
+            screen.closing = true;
+            screen.spaces.request_shutdown(&screen.model);
         }
     }
     Ok(())
 }
 
+impl Drop for Screen {
+    fn drop(&mut self) {
+        self.spaces.request_shutdown(&self.model);
+    }
+}
+
 impl Screen {
     fn draw(&self, frame: &mut Frame) {
         let language = self.model.language;
+        if self.closing {
+            frame.render_widget(
+                Paragraph::new(language.text("Waiting for current operations to finish safely."))
+                    .block(Block::bordered().title(language.text("Stopping tasks…"))),
+                frame.area(),
+            );
+            return;
+        }
         let [header, body, footer] = Layout::vertical([
             Constraint::Length(3),
             Constraint::Min(8),
@@ -770,6 +792,7 @@ mod tests {
         let mut screen = Screen {
             model,
             spaces,
+            closing: false,
             space_menu: false,
             space_index: 0,
             space_form: None,

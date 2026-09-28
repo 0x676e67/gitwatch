@@ -73,7 +73,6 @@ impl Tray {
                 Event::Menu(event) if event.id == *self.show.id() => reveal(context),
                 Event::Menu(event) if event.id == *self.quit.id() => {
                     self.quitting = true;
-                    context.send_viewport_cmd(ViewportCommand::Close);
                 }
                 Event::Icon(TrayIconEvent::Click {
                     id,
