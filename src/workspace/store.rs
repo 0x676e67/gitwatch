@@ -438,6 +438,7 @@ impl BackupStore {
     }
 
     /// Binds a fetched branch to a project on this machine, without restoring files.
+    /// Retains existing history for the same task until a restore is confirmed.
     pub fn import(&self, branch: &str, root: impl AsRef<Path>) -> Result<Workspace> {
         let _tasks = Lock::wait(&self.data.join("tasks.lock"))?;
         let _lock = self.lock()?;
@@ -467,13 +468,10 @@ impl BackupStore {
         );
         let old = self.git.reference(&workspace.reference())?;
         if let Some(old) = &old {
-            ensure!(
-                self.git.ancestor(old, &commit)?,
-                "Local and remote history diverged; local branch was preserved"
-            );
+            self.manifest(old, Some(workspace.id))?;
+        } else {
+            self.git.update_ref(&workspace.reference(), &commit, None)?;
         }
-        self.git
-            .update_ref(&workspace.reference(), &commit, old.as_deref())?;
         config.workspaces.push(workspace.clone());
         self.save_config(&config)?;
         Ok(workspace)
@@ -730,12 +728,17 @@ impl BackupStore {
     fn remote_workspaces_locked(&self) -> Result<Vec<RemoteWorkspace>> {
         let output = self.git.text([
             "for-each-ref",
-            "--format=%(refname:strip=3) %(objectname)",
+            "--format=%(refname:strip=3) %(objectname) %(symref)",
             "refs/remotes/origin/",
         ])?;
         let mut workspaces = Vec::new();
         for line in output.lines() {
-            let (branch, commit) = line.split_once(' ').context("Invalid remote reference")?;
+            let mut fields = line.splitn(3, ' ');
+            let branch = fields.next().context("Invalid remote reference")?;
+            let commit = fields.next().context("Invalid remote reference")?;
+            if fields.next().is_some_and(|target| !target.is_empty()) {
+                continue;
+            }
             let exists = self.git.output(
                 ["cat-file", "-e", &format!("{commit}:manifest.json")],
                 None,

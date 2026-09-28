@@ -730,6 +730,17 @@ fn remote_import_and_divergent_upload_preserve_both_devices() {
     );
     b.set_remote(Some(remote.to_str().unwrap()), true).unwrap();
     assert_eq!(b.fetch().unwrap().len(), 1);
+    git(
+        b.repository(),
+        &[
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/project",
+        ],
+    );
+    let branches = b.remote_workspaces().unwrap();
+    assert_eq!(branches.len(), 1);
+    assert_eq!(branches[0].branch(), "project");
     let imported = b.import("project", &source_b).unwrap();
     assert_eq!(imported.id(), workspace.id());
     assert!(imported.is_paused());
@@ -748,6 +759,27 @@ fn remote_import_and_divergent_upload_preserve_both_devices() {
     );
     assert_eq!(fs::read(source_b.join("AGENTS.md")).unwrap(), b"device B");
     assert_eq!(b.fetch().unwrap()[0].commit(), a_commit.commit());
+
+    // Removing a binding retains history; importing it again must not require a fast-forward.
+    b.remove(imported.id()).unwrap();
+    let fresh = temp.path().join("fresh-project");
+    fs::create_dir(&fresh).unwrap();
+    fs::write(fresh.join("Cargo.toml"), "existing project code").unwrap();
+    let imported = b.import("project", &fresh).unwrap();
+    assert!(imported.is_paused());
+    assert_eq!(imported.id(), workspace.id());
+    assert!(!fresh.join("AGENTS.md").exists());
+    assert_eq!(
+        fs::read(fresh.join("Cargo.toml")).unwrap(),
+        b"existing project code"
+    );
+    assert_eq!(
+        git(b.repository(), &["rev-parse", "project"]),
+        b_commit.commit()
+    );
+    assert_eq!(fs::read(source_b.join("AGENTS.md")).unwrap(), b"device B");
+    b.update(imported.edit().root(&source_b).build().unwrap())
+        .unwrap();
 
     let stale = b.preview_remote_restore(imported.id()).unwrap();
     assert!(stale.is_remote());
@@ -827,6 +859,13 @@ fn remote_import_and_divergent_upload_preserve_both_devices() {
     a.set_remote(Some(remote.to_str().unwrap()), false).unwrap();
     fs::write(source_a.join("AGENTS.md"), "local only").unwrap();
     let local = a.backup(workspace.id()).unwrap();
+    a.fetch().unwrap();
+    a.remove(workspace.id()).unwrap();
+    a.import("project", &source_a).unwrap();
+    assert_eq!(
+        git(a.repository(), &["rev-parse", "project"]),
+        local.commit()
+    );
     let plan = a.preview_remote_restore(workspace.id()).unwrap();
     let restored = a.apply_restore(plan.id()).unwrap();
     assert!(restored.error().is_none());
@@ -834,6 +873,33 @@ fn remote_import_and_divergent_upload_preserve_both_devices() {
     assert_eq!(
         git(a.repository(), &["merge-base", local.commit(), "project"]),
         local.commit()
+    );
+
+    // An unrelated task's retained branch must never be adopted under this identity.
+    b.remove(imported.id()).unwrap();
+    let unrelated = Workspace::builder("unrelated", &source_b)
+        .include("AGENTS.md")
+        .build()
+        .unwrap();
+    b.register(unrelated.clone()).unwrap();
+    let unrelated_commit = b.backup(unrelated.id()).unwrap();
+    git(
+        b.repository(),
+        &[
+            "update-ref",
+            "refs/heads/project",
+            unrelated_commit.commit(),
+        ],
+    );
+    assert!(
+        b.import("project", &source_b)
+            .unwrap_err()
+            .to_string()
+            .contains("Commit does not belong to this workspace")
+    );
+    assert_eq!(
+        git(b.repository(), &["rev-parse", "project"]),
+        unrelated_commit.commit()
     );
 }
 
