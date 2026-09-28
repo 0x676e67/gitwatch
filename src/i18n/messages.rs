@@ -1,5 +1,62 @@
 // English source messages are stable keys. Numbered values are inserted verbatim.
 pub(super) const TEXT: &[(&str, &str)] = &[
+    ("Restore remote backup", "恢复远程备份"),
+    ("1. Choose backup and destination", "1. 选择备份和目标目录"),
+    ("2. Review and confirm", "2. 预览并确认"),
+    ("3. Restore complete", "3. 恢复完成"),
+    ("Loading remote backups…", "正在读取远程备份…"),
+    ("Preparing file preview…", "正在准备文件预览…"),
+    ("Restoring files…", "正在恢复文件…"),
+    ("Retry preview", "重新生成预览"),
+    (
+        "Restore could not finish. Create a new preview before trying again.",
+        "恢复未能完成，请重新生成预览后再试。",
+    ),
+    ("Back to selection", "返回选择"),
+    (
+        "The backup files are now in your local directory.",
+        "备份文件已恢复到本地目标目录。",
+    ),
+    (
+        "The task is stopped. Start it when you are ready to back up local changes.",
+        "任务保持停止。准备好持续备份本地更改后，再启动任务。",
+    ),
+    ("Back to task", "返回任务"),
+    (
+        "Files are written only after you confirm. A new task stays stopped until you start it.",
+        "确认后才会写入文件。新任务不会自动启动。",
+    ),
+    (
+        "No backups found. Upload a backup from your other computer first.",
+        "没有找到备份，请先从另一台电脑上传备份。",
+    ),
+    ("Backup", "备份"),
+    (
+        "This task is already linked differently. Open it in the task list to review its settings.",
+        "此任务已有其他绑定，请从任务列表打开并检查设置。",
+    ),
+    ("Destination folder", "目标目录"),
+    ("Refresh remote backups", "刷新远程备份"),
+    (
+        "To bring files from another computer, choose Restore remote backup in the toolbar.",
+        "要恢复另一台电脑的文件，请点击工具栏中的“恢复远程备份”。",
+    ),
+    (
+        "Preview only — no files have been written.",
+        "当前仅为预览，尚未写入任何文件。",
+    ),
+    (
+        "{0} new · {1} replaced · {2} unchanged",
+        "新增 {0} 个 · 覆盖 {1} 个 · 无需更改 {2} 个",
+    ),
+    (
+        "Remote backups loaded. Choose a backup and destination to preview files.",
+        "已读取远程备份，请选择备份和目标目录以预览文件。",
+    ),
+    (
+        "Restore preview is ready. No files have been written.",
+        "恢复预览已就绪，尚未写入任何文件。",
+    ),
     ("Restore from remote", "从远程恢复"),
     ("Import remote tasks", "导入远程任务"),
     (

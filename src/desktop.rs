@@ -2,6 +2,7 @@
 
 mod icons;
 mod repository;
+mod restore;
 mod theme;
 mod tray;
 
@@ -61,8 +62,7 @@ struct Desktop {
     remote: String,
     auto_push: bool,
     settings: bool,
-    import_branch: usize,
-    import_path: String,
+    restore: Option<restore::Flow>,
 }
 
 /// Runs the native desktop interface; Git and filesystem work stays on workers.
@@ -127,8 +127,7 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
                 remote: String::new(),
                 auto_push: false,
                 settings: false,
-                import_branch: 0,
-                import_path: String::new(),
+                restore: None,
             }))
         }),
     )
@@ -471,8 +470,7 @@ impl Desktop {
         self.confirm = false;
         self.remove = false;
         self.restore_files.clear();
-        self.import_path.clear();
-        self.import_branch = 0;
+        self.restore = None;
         self.remote.clear();
         self.model.plan = None;
         self.model.history.clear();
@@ -500,6 +498,11 @@ impl Desktop {
             if self.model.error.is_none() {
                 self.draft = None;
             }
+        }
+        if self.restore.is_some()
+            && let Some(plan) = &self.model.plan
+        {
+            self.selected = Some(plan.workspace());
         }
         if !self
             .model
@@ -570,12 +573,13 @@ impl Desktop {
                         && ui
                             .add_enabled(
                                 !self.model.busy && self.model.remote.is_some(),
-                                Icon::Download.button(language.text("Import remote tasks")),
+                                Icon::Download.button(language.text("Restore remote backup")),
                             )
                             .clicked()
                     {
-                        self.set_backup_settings(true);
-                        self.model.send(Command::Fetch);
+                        self.settings = false;
+                        self.draft = None;
+                        self.restore = Some(restore::Flow::new(&mut self.model, None));
                     }
                     if ui
                         .add_enabled(
@@ -684,6 +688,14 @@ impl Desktop {
                     }
                 });
             });
+        if let Some(flow) = &mut self.restore {
+            if let Some(plan) = &self.model.plan {
+                self.selected = Some(plan.workspace());
+            }
+            if flow.show(ui.ctx(), &mut self.model) {
+                self.restore = None;
+            }
+        }
         egui::Window::new(language.text("Desktop settings"))
             .open(&mut self.desktop_settings)
             .collapsible(false)
@@ -766,10 +778,7 @@ impl Desktop {
                             .on_hover_text(language.text("Fetch the latest backup and preview changes before writing local files."))
                             .clicked()
                     {
-                        self.confirm = false;
-                        self.model.plan = None;
-                        self.model.text.clear();
-                        self.model.send(Command::PreviewRemote(id));
+                        self.restore = Some(restore::Flow::new(&mut self.model, Some(id)));
                     }
                     if ui
                         .add(Icon::History.button(language.text("History")))
@@ -824,45 +833,89 @@ impl Desktop {
             });
             return;
         }
-        egui::ScrollArea::vertical().id_salt("details").auto_shrink([false, false]).show(ui, |ui| {
-            egui::CollapsingHeader::new(language.text("Source repository")).show(ui, |ui| self.repository.show(ui, &repository_path, "origin", language));
-            if let Some(plan) = &self.model.plan {
-                ui.separator(); ui.heading(language.text("Restore preview"));
-                ui.label(language.format("Destination: {0}", &[&plan.root().display().to_string()]));
-                ui.label(language.format("Version: {0}", &[plan.commit()]));
-                if plan.is_remote() {
-                    ui.label(language.text("Use the previewed remote contents. Both backup histories and extra local files are kept. Upload separately to share the result."));
+        egui::ScrollArea::vertical()
+            .id_salt("details")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::CollapsingHeader::new(language.text("Source repository")).show(ui, |ui| {
+                    self.repository
+                        .show(ui, &repository_path, "origin", language)
+                });
+                if self.model.plan.is_some() && self.restore.is_none() {
+                    restore::preview(ui, &mut self.model, &mut self.confirm, !running);
+                } else {
+                    ui.separator();
+                    ui.heading(language.text("History"));
+                    if self.model.history.is_empty() {
+                        ui.weak(language.text("Choose History to load saved versions."));
+                    }
+                    for (index, entry) in self.model.history.iter().enumerate() {
+                        if ui
+                            .selectable_label(
+                                self.history == index,
+                                format!(
+                                    "{}  {}",
+                                    entry.commit().get(..12).unwrap_or(entry.commit()),
+                                    entry.summary()
+                                ),
+                            )
+                            .clicked()
+                        {
+                            self.history = index;
+                        }
+                    }
+                    if let Some(entry) = self.model.history.get(self.history) {
+                        let revision = entry.commit().to_owned();
+                        let older = self
+                            .model
+                            .history
+                            .get(self.history + 1)
+                            .map(|e| e.commit().to_owned());
+                        ui.label(
+                            language.text("Restore selected paths (one per line; empty means all)"),
+                        );
+                        ui.text_edit_multiline(&mut self.restore_files);
+                        ui.horizontal(|ui| {
+                            if ui
+                                .add_enabled(
+                                    !self.model.busy && !running,
+                                    Icon::Preview.button(language.text("Preview restore")),
+                                )
+                                .clicked()
+                            {
+                                self.model.send(Command::Preview(
+                                    id,
+                                    revision.clone(),
+                                    lines(&self.restore_files),
+                                ));
+                            }
+                            if let Some(older) = older
+                                && ui
+                                    .add_enabled(
+                                        !self.model.busy,
+                                        Icon::Diff.button(language.text("Diff to previous")),
+                                    )
+                                    .clicked()
+                            {
+                                self.model.send(Command::Diff(id, older, revision));
+                            }
+                        });
+                        if running {
+                            ui.label(language.text("Stop this task before restoring."));
+                        }
+                    }
                 }
-                let mut command = None;
-                for entry in plan.entries() {
-                    if ui.add_enabled(!self.model.busy, egui::Button::new(format!("{}  {}", language.text(&format!("{:?}", entry.change())), entry.path()))).clicked() { command = Some(Command::Contents(plan.id(), entry.path().into())); }
+                if self.model.plan.is_none() && !self.model.text.is_empty() {
+                    ui.separator();
+                    ui.add(
+                        egui::TextEdit::multiline(&mut self.model.text.render(language))
+                            .interactive(false)
+                            .font(egui::TextStyle::Monospace)
+                            .desired_rows(15)
+                            .desired_width(f32::INFINITY),
+                    );
                 }
-                if self.confirm {
-                    ui.colored_label(Color32::YELLOW, language.text("This replaces the previewed files. Current files are saved in the local recovery directory first. Extra files are kept."));
-                    if ui.add_enabled(!self.model.busy && !running, Icon::Restore.button(language.text("Confirm restore"))).clicked() { command = Some(Command::Restore(plan.id())); self.confirm = false; }
-                } else if ui.add_enabled(!running && !self.model.busy, Icon::Restore.button(language.text("Continue to confirmation"))).clicked() { self.confirm = true; }
-                if let Some(command) = command { self.model.send(command); }
-                if ui.add(Icon::Close.button(language.text("Close preview"))).clicked() { self.model.plan = None; self.confirm = false; }
-            } else {
-                ui.separator(); ui.heading(language.text("History"));
-                if self.model.history.is_empty() { ui.weak(language.text("Choose History to load saved versions.")); }
-                for (index, entry) in self.model.history.iter().enumerate() {
-                    if ui.selectable_label(self.history == index, format!("{}  {}", entry.commit().get(..12).unwrap_or(entry.commit()), entry.summary())).clicked() { self.history = index; }
-                }
-                if let Some(entry) = self.model.history.get(self.history) {
-                    let revision = entry.commit().to_owned();
-                    let older = self.model.history.get(self.history + 1).map(|e| e.commit().to_owned());
-                    ui.label(language.text("Restore selected paths (one per line; empty means all)"));
-                    ui.text_edit_multiline(&mut self.restore_files);
-                    ui.horizontal(|ui| {
-                        if ui.add_enabled(!self.model.busy && !running, Icon::Preview.button(language.text("Preview restore"))).clicked() { self.model.send(Command::Preview(id, revision.clone(), lines(&self.restore_files))); }
-                        if let Some(older) = older && ui.add_enabled(!self.model.busy, Icon::Diff.button(language.text("Diff to previous"))).clicked() { self.model.send(Command::Diff(id, older, revision)); }
-                    });
-                    if running { ui.label(language.text("Stop this task before restoring.")); }
-                }
-            }
-            if !self.model.text.is_empty() { ui.separator(); ui.add(egui::TextEdit::multiline(&mut self.model.text.render(language)).interactive(false).font(egui::TextStyle::Monospace).desired_rows(15).desired_width(f32::INFINITY)); }
-        });
+            });
     }
 
     fn form(&mut self, ui: &mut egui::Ui) {
@@ -1063,64 +1116,11 @@ impl Desktop {
                     self.model
                         .send(Command::Remote(self.remote.clone(), self.auto_push));
                 }
-                if ui
-                    .add_enabled(
-                        self.model.remote.is_some(),
-                        Icon::Download.button(language.text("Fetch backup tasks")),
-                    )
-                    .clicked()
-                {
-                    self.model.send(Command::Fetch);
-                }
             });
         });
-        if !self.model.branches.is_empty() {
-            egui::ComboBox::from_label(language.text("Backup task branch"))
-                .selected_text(
-                    self.model
-                        .branches
-                        .get(self.import_branch)
-                        .map(|b| b.branch())
-                        .unwrap_or(language.text("Choose branch")),
-                )
-                .show_ui(ui, |ui| {
-                    for (index, branch) in self.model.branches.iter().enumerate() {
-                        ui.selectable_value(
-                            &mut self.import_branch,
-                            index,
-                            format!("{} — {}", branch.branch(), branch.manifest().name()),
-                        );
-                    }
-                });
-            field(
-                ui,
-                language.text("Bind to local directory"),
-                &mut self.import_path,
-            );
-            ui.horizontal(|ui| {
-                if ui
-                    .add(Icon::Folder.button(language.text("Choose directory…")))
-                    .clicked()
-                    && let Some(path) = rfd::FileDialog::new().pick_folder()
-                {
-                    self.import_path = path.to_string_lossy().into_owned();
-                }
-                if ui
-                    .add_enabled(
-                        !self.model.busy && !self.import_path.is_empty(),
-                        Icon::Download.button(language.text("Import paused")),
-                    )
-                    .clicked()
-                    && let Some(branch) = self.model.branches.get(self.import_branch)
-                {
-                    self.model.send(Command::Import(
-                        branch.branch().into(),
-                        self.import_path.clone().into(),
-                    ));
-                }
-            });
-            ui.label(language.text("Import creates a paused task. Select it and choose Restore from remote to preview files for this computer."));
-        }
+        ui.label(language.text(
+            "To bring files from another computer, choose Restore remote backup in the toolbar.",
+        ));
     }
 }
 
@@ -1162,7 +1162,16 @@ mod tests {
     }
 
     fn settle(app: &mut Desktop) {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        settle_for(app, Duration::from_secs(10));
+    }
+
+    fn settle_for(app: &mut Desktop, timeout: Duration) {
+        wait_for(app, timeout);
+        assert!(app.model.error.is_none(), "{:?}", app.model.error);
+    }
+
+    fn wait_for(app: &mut Desktop, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
         while (app.model.busy || app.spaces.busy()) && Instant::now() < deadline {
             if app.spaces.poll(&mut app.model) {
                 app.clear_workspace();
@@ -1170,7 +1179,6 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert!(!app.model.busy && !app.spaces.busy());
-        assert!(app.model.error.is_none(), "{:?}", app.model.error);
     }
 
     fn render(
@@ -1432,8 +1440,7 @@ mod tests {
             remote: String::new(),
             auto_push: false,
             settings: false,
-            import_branch: 0,
-            import_path: String::new(),
+            restore: None,
         }
     }
 
@@ -1493,7 +1500,7 @@ mod tests {
         let output = render(&mut app, &context, vec![]);
         for label in [
             "Backup settings",
-            "Import remote tasks",
+            "Restore remote backup",
             "Workspace backup remote",
             "Rename workspace",
             "Remove workspace",
@@ -1603,9 +1610,14 @@ mod tests {
         fs::create_dir(&source).unwrap();
         let file = source.join("notes.md");
         fs::write(&file, "remote contents").unwrap();
+        fs::create_dir(source.join("files")).unwrap();
+        for index in 0..360 {
+            fs::write(source.join(format!("files/{index}.md")), "backup file").unwrap();
+        }
         let seed = crate::workspace::BackupStore::open(temp.path().join("seed")).unwrap();
         let task = crate::workspace::Workspace::builder("Notes", &source)
             .include("notes.md")
+            .include("files")
             .build()
             .unwrap();
         seed.register(task.clone()).unwrap();
@@ -1616,10 +1628,10 @@ mod tests {
         fs::create_dir(&destination).unwrap();
         let file = destination.join("notes.md");
         let mut app = fixture(temp.path());
-        settle(&mut app);
+        settle_for(&mut app, Duration::from_secs(60));
         app.spaces
             .create("Shared".into(), remote.to_string_lossy().into_owned());
-        settle(&mut app);
+        settle_for(&mut app, Duration::from_secs(60));
         let space = app
             .spaces
             .list()
@@ -1628,49 +1640,96 @@ mod tests {
             .unwrap()
             .id;
         app.spaces.switch(&mut app.model, space);
-        settle(&mut app);
+        settle_for(&mut app, Duration::from_secs(60));
         let context = egui::Context::default();
         theme::apply(&context);
         context.all_styles_mut(|style| style.animation_time = 0.0);
         configure_fonts(&context);
-        click(&mut app, &context, "Import remote tasks");
-        settle(&mut app);
-        assert!(app.settings);
-        assert_eq!(app.model.branches.len(), 1);
-        app.import_path = destination.to_string_lossy().into_owned();
-        click(&mut app, &context, "Import paused");
-        settle(&mut app);
-        assert_eq!(app.model.rows[0].draft.id, Some(task.id()));
-        assert!(!app.model.rows[0].running);
-        assert!(
-            !file.exists(),
-            "Import must not restore files without confirmation"
-        );
         for language in [Language::English, Language::Chinese] {
             app.spaces
                 .global(&mut app.model, Command::Language(language));
-            settle(&mut app);
-            fs::write(&file, "unpublished local contents").unwrap();
-            click(&mut app, &context, "Notes");
-            click(&mut app, &context, language.text("Restore from remote"));
-            settle(&mut app);
+            settle_for(&mut app, Duration::from_secs(60));
+            if language == Language::English {
+                click(&mut app, &context, language.text("Restore remote backup"));
+                settle_for(&mut app, Duration::from_secs(60));
+                assert!(!app.settings);
+                assert_eq!(app.model.branches.len(), 1);
+                app.restore.as_mut().unwrap().path = destination.to_string_lossy().into_owned();
+                click(&mut app, &context, language.text("Preview restore"));
+            } else {
+                fs::write(&file, "unpublished local contents").unwrap();
+                click(&mut app, &context, language.text("Restore from remote"));
+            }
+            settle_for(&mut app, Duration::from_secs(60));
+            assert_eq!(app.model.rows[0].draft.id, Some(task.id()));
+            assert!(!app.model.rows[0].running);
             assert!(app.model.plan.as_ref().unwrap().is_remote());
-            assert_eq!(
-                fs::read_to_string(&file).unwrap(),
-                "unpublished local contents"
+            assert_eq!(app.model.plan.as_ref().unwrap().entries().len(), 361);
+            if language == Language::English {
+                assert!(!file.exists(), "Preparing the preview must not write files");
+            } else {
+                assert_eq!(
+                    fs::read_to_string(&file).unwrap(),
+                    "unpublished local contents"
+                );
+            }
+            assert!(app.model.logs.iter().any(|text| text.render(language)
+                == language.text("Restore preview is ready. No files have been written.")));
+            if language == Language::Chinese {
+                fs::write(&file, "changed after preview").unwrap();
+                click(&mut app, &context, language.text("Confirm restore"));
+                wait_for(&mut app, Duration::from_secs(60));
+                assert!(
+                    app.model
+                        .error
+                        .as_ref()
+                        .unwrap()
+                        .contains("changed after preview")
+                );
+                render(&mut app, &context, vec![]);
+                assert_eq!(fs::read_to_string(&file).unwrap(), "changed after preview");
+                click(&mut app, &context, language.text("Retry preview"));
+                settle_for(&mut app, Duration::from_secs(60));
+            }
+            // Even with hundreds of entries the primary action stays on the 800x560 screen.
+            let output = render(&mut app, &context, vec![]);
+            let label = language.text("Confirm restore");
+            let (bounds, clip) = output
+                .shapes
+                .iter()
+                .find_map(|shape| {
+                    if let egui::Shape::Text(text) = &shape.shape
+                        && text.galley.job.text == label
+                    {
+                        Some((
+                            egui::Rect::from_min_size(text.pos, text.galley.size()),
+                            shape.clip_rect,
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .expect("Confirmation must be visible without scrolling the file list");
+            assert!(
+                egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 560.0))
+                    .contains_rect(bounds),
+                "{bounds:?}"
             );
-            click(
-                &mut app,
-                &context,
-                language.text("Continue to confirmation"),
+            assert!(
+                clip.contains_rect(bounds),
+                "The confirmation must not be clipped"
             );
-            assert_eq!(
-                fs::read_to_string(&file).unwrap(),
-                "unpublished local contents"
-            );
-            click(&mut app, &context, language.text("Confirm restore"));
-            settle(&mut app);
+            click(&mut app, &context, label);
+            settle_for(&mut app, Duration::from_secs(60));
             assert_eq!(fs::read_to_string(&file).unwrap(), "remote contents");
+            assert_eq!(
+                fs::read_dir(destination.join("files")).unwrap().count(),
+                360
+            );
+            click(&mut app, &context, language.text("Back to task"));
+            assert!(app.restore.is_none());
+            assert_eq!(app.selected, Some(task.id()));
+            assert!(!app.model.rows[0].running);
         }
     }
 

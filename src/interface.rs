@@ -83,7 +83,10 @@ pub(crate) enum Command {
     Push(Uuid),
     Remote(String, bool),
     Fetch,
+    #[cfg(feature = "tui")]
     Import(String, PathBuf),
+    #[cfg(feature = "desktop")]
+    ImportPreview(String, PathBuf),
     History(Uuid),
     Diff(Uuid, String, String),
     Preview(Uuid, String, Vec<String>),
@@ -879,10 +882,24 @@ impl Worker {
             }
             Command::Fetch => {
                 let _ = self.sender.send(Message::Branches(self.store.fetch()?));
+                return Ok(
+                    "Remote backups loaded. Choose a backup and destination to preview files."
+                        .into(),
+                );
             }
+            #[cfg(feature = "tui")]
             Command::Import(branch, root) => {
                 self.store.import(&branch, root)?;
                 self.refresh()?;
+            }
+            #[cfg(feature = "desktop")]
+            Command::ImportPreview(branch, root) => {
+                let workspace = self.store.import(&branch, root)?;
+                self.refresh()?;
+                let _ = self.sender.send(Message::Preview(
+                    self.store.preview_remote_restore(workspace.id())?,
+                ));
+                return Ok("Restore preview is ready. No files have been written.".into());
             }
             Command::History(id) => {
                 let _ = self
@@ -902,6 +919,7 @@ impl Worker {
                 let _ = self.sender.send(Message::Preview(
                     self.store.preview_restore(id, &revision, &selected)?,
                 ));
+                return Ok("Restore preview is ready. No files have been written.".into());
             }
             Command::PreviewRemote(id) => {
                 ensure!(
@@ -911,6 +929,7 @@ impl Worker {
                 let _ = self
                     .sender
                     .send(Message::Preview(self.store.preview_remote_restore(id)?));
+                return Ok("Restore preview is ready. No files have been written.".into());
             }
             Command::Contents(plan, path) => {
                 let (before, after) = self.store.restore_contents(plan, &path)?;
