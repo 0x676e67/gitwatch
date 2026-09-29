@@ -1279,8 +1279,8 @@ pub(super) const TEXT: &[(&str, &str)] = &[
         "另一个 gitwatch 操作正在使用此仓库",
     ),
     (
-        "Could not start process; check the executable is installed",
-        "无法启动进程，请检查是否已安装可执行程序",
+        "Cannot run Git; install Git, make sure it is on PATH, then restart gitwatch. If GW_GIT_BIN is set, check that path",
+        "无法运行 Git；请安装 Git，确保它已加入 PATH，然后重新启动 gitwatch。如果设置了 GW_GIT_BIN，请检查该路径",
     ),
     (
         "Process output exceeded the size limit",
@@ -1315,6 +1315,11 @@ pub(super) const TEXT: &[(&str, &str)] = &[
 
 // Existing core errors carry English text. Only known application templates are translated.
 pub(super) const ERRORS: &[(&str, &str)] = &[
+    (
+        "Could not start executable '{}': {}",
+        "无法启动程序“{0}”：{1}",
+    ),
+    ("Could not start executable '{}'", "无法启动程序“{0}”"),
     ("Symbolic link cycle: {}", "符号链接存在循环：{0}"),
     (
         "Selection exceeds 128 directory levels",

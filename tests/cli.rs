@@ -58,14 +58,26 @@ fn help_and_invalid_inputs_have_predictable_exit_codes() {
 fn store_initialization_can_retry_after_git_is_unavailable() {
     let temp = TempDir::new().unwrap();
     let data = temp.path().join("data");
-    let output = Command::new(env!("CARGO_BIN_EXE_gitwatch"))
-        .args(["--lang", "en", "--data-dir"])
-        .arg(&data)
-        .args(["workspace", "list"])
-        .env("GW_GIT_BIN", temp.path().join("missing-git-executable"))
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
+    for (language, hint) in [("en", "install Git"), ("zh-CN", "请安装 Git")] {
+        let mut commands = vec![vec!["workspace", "list"]];
+        if cfg!(feature = "tui") {
+            commands.push(vec!["tui"]);
+        }
+        for args in commands {
+            let output = Command::new(env!("CARGO_BIN_EXE_gitwatch"))
+                .args(["--lang", language, "--data-dir"])
+                .arg(&data)
+                .args(args)
+                .env("GW_GIT_BIN", temp.path().join("missing-git-executable"))
+                .output()
+                .unwrap();
+            assert!(!output.status.success());
+            let error = String::from_utf8_lossy(&output.stderr);
+            for expected in [hint, "PATH", "GW_GIT_BIN", "missing-git-executable"] {
+                assert!(error.contains(expected), "{error}");
+            }
+        }
+    }
     let output = cli(&[
         "--lang",
         "en",
