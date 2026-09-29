@@ -16,13 +16,12 @@ use crate::{
 };
 
 /// How a pull integrates remote history with local commits.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PullStrategy {
     /// Refuse divergent history without rewriting or merging local commits.
     #[default]
     #[serde(rename = "ff-only")]
-    #[value(name = "ff-only")]
     FastForwardOnly,
     /// Fast-forward when possible, otherwise create a merge commit.
     Merge,

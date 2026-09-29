@@ -9,13 +9,13 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     Release,
-    archive::{self, CLI, DESKTOP, RECEIPT, Receipt},
+    archive::{self, PROGRAM, RECEIPT, Receipt},
 };
 use crate::{Result, paths};
 
 const RECOVERY: &str = ".gitwatch-recovery";
 
-/// Holds a shared installation lock while a CLI or desktop task is running.
+/// Holds a shared installation lock while the desktop application is running.
 pub struct Running {
     _lock: File,
 }
@@ -44,7 +44,7 @@ impl Running {
         let lock = lock(&directory, false)?;
         ensure!(
             !directory.join(RECOVERY).try_exists()?,
-            "An interrupted operation needs recovery; run gitwatch self update --recover"
+            "An interrupted update needs recovery. Reopen gitwatch to restore the previous installation."
         );
         Ok(Self { _lock: lock })
     }
@@ -53,34 +53,33 @@ impl Running {
 // ===== impl Installation =====
 
 impl Installation {
-    /// Opens the current CLI installation. Package-managed installations must use
+    /// Checks package-manager ownership before stopping desktop tasks.
+    pub fn check() -> Result<()> {
+        managed(&directory()?)
+    }
+
+    /// Opens the current desktop installation. Package-managed installations must use
     /// their package manager so that its installation records remain consistent.
     pub fn current() -> Result<Self> {
         let executable = std::env::current_exe()?;
         ensure!(
-            executable.file_name().is_some_and(|name| name == CLI),
-            "Run self management from the installed gitwatch executable"
+            executable.file_name().is_some_and(|name| name == PROGRAM),
+            "Open the installed gitwatch executable to manage this installation"
         );
         let directory = directory()?;
         managed(&directory)?;
         let lock = lock(&directory, true)?;
         ensure!(
             !directory.join(RECOVERY).exists(),
-            "An interrupted operation needs recovery; run gitwatch self update --recover"
+            "An interrupted update needs recovery. Reopen gitwatch to restore the previous installation."
         );
         let files = if directory.join(RECEIPT).try_exists()? {
             Receipt::read(&directory)?.files
         } else {
-            // A standalone CLI can bootstrap itself. A pair requires a release receipt
-            // so an unrelated same-name executable cannot be silently overwritten.
-            ensure!(
-                !directory.join(DESKTOP).try_exists()?,
-                "This desktop installation has no receipt; extract a current official release before self management"
-            );
-            BTreeMap::from([(CLI.into(), archive::hash(&executable)?)])
+            BTreeMap::from([(PROGRAM.into(), archive::hash(&executable)?)])
         };
         ensure!(
-            files.get(CLI) == Some(&archive::hash(&executable)?),
+            files.get(PROGRAM) == Some(&archive::hash(&executable)?),
             "Current executable does not match the installation"
         );
         Ok(Self {
@@ -88,11 +87,6 @@ impl Installation {
             files,
             _lock: lock,
         })
-    }
-
-    /// Lists exact program paths affected by update or uninstall.
-    pub fn files(&self) -> impl Iterator<Item = PathBuf> + '_ {
-        self.files.keys().map(|name| self.directory.join(name))
     }
 
     /// Downloads, verifies and installs a newer official release.
@@ -106,14 +100,7 @@ impl Installation {
         let archive = release.download(staging.path())?;
         let extracted = staging.path().join("extracted");
         fs::create_dir(&extracted)?;
-        let mut receipt = archive::extract(&archive, &extracted, release.version())?;
-        receipt
-            .files
-            .retain(|name, _| self.files.contains_key(name));
-        ensure!(
-            receipt.files.len() == self.files.len(),
-            "Release is missing an installed program"
-        );
+        let receipt = archive::extract(&archive, &extracted, release.version())?;
         for name in receipt.files.keys() {
             runnable(&extracted.join(name), release.version())?;
         }
@@ -121,17 +108,14 @@ impl Installation {
     }
 
     fn install(&self, extracted: &Path, receipt: &Receipt) -> Result<()> {
-        // Finish all fallible license preparation before replacing either program.
+        // Finish all fallible license preparation before replacing the program.
         self.licenses(extracted, &receipt.version)?;
         self.verify()?;
         self.backup()?;
         let result = (|| -> Result<()> {
-            if self.files.contains_key(DESKTOP) {
-                replace(&extracted.join(DESKTOP), &self.directory.join(DESKTOP))?;
-            }
             // self-replace handles Windows executable image locks without rebooting.
             // https://docs.rs/self-replace/1.5.0/self_replace/fn.self_replace.html
-            self_replace::self_replace(extracted.join(CLI))?;
+            self_replace::self_replace(extracted.join(PROGRAM))?;
             paths::atomic_write(
                 &self.directory.join(RECEIPT),
                 &serde_json::to_vec_pretty(receipt)?,
@@ -189,14 +173,11 @@ impl Installation {
     }
 
     /// Removes the verified program files, retaining all user data and license notices.
-    /// On Windows the running CLI disappears after this process exits.
+    /// On Windows the running application disappears after this process exits.
     pub fn uninstall(self) -> Result<()> {
         self.verify()?;
         self.backup()?;
         let result = (|| -> Result<()> {
-            if self.files.contains_key(DESKTOP) {
-                fs::remove_file(self.directory.join(DESKTOP))?;
-            }
             if self.directory.join(RECEIPT).try_exists()? {
                 fs::remove_file(self.directory.join(RECEIPT))?;
             }
@@ -212,6 +193,11 @@ impl Installation {
             };
         }
         cleanup(&self.directory)
+    }
+
+    /// Reports whether the current installation has an unfinished transaction.
+    pub fn needs_recovery() -> Result<bool> {
+        Ok(directory()?.join(RECOVERY).try_exists()?)
     }
 
     /// Restores binaries saved by an interrupted operation in the current directory.
@@ -264,14 +250,11 @@ impl Installation {
 
 fn runnable(path: &Path, version: &str) -> Result<()> {
     let mut command = std::process::Command::new(path);
-    command.args(["--lang", "en", "--version"]);
+    command.arg("--version");
     let output = crate::git::execute(command, None, std::time::Duration::from_secs(5))
         .context("The downloaded program cannot run on this system")?;
     let stdout = std::str::from_utf8(&output.stdout)?;
-    let reported = stdout
-        .trim()
-        .strip_prefix("gitwatch ")
-        .or_else(|| stdout.trim().strip_prefix("gitwatch-desktop "));
+    let reported = stdout.trim().strip_prefix("gitwatch ");
     ensure!(
         output.code == 0 && reported == Some(version),
         "The downloaded program cannot run or reports an unexpected version"
@@ -396,11 +379,7 @@ fn recovery(directory: &Path) -> Result<Recovery> {
     );
     let state: Recovery = serde_json::from_slice(&paths::read_file(&saved.join("recovery.json"))?)?;
     ensure!(
-        state.files.contains_key(CLI)
-            && state
-                .files
-                .keys()
-                .all(|name| [CLI, DESKTOP].contains(&name.as_str())),
+        state.files.contains_key(PROGRAM) && state.files.len() == 1,
         "Invalid recovery manifest"
     );
     if !state.committed {
@@ -420,17 +399,15 @@ fn restore(directory: &Path) -> Result<()> {
         return cleanup(directory);
     }
     let saved = directory.join(RECOVERY);
-    for name in state.files.keys().filter(|name| name.as_str() != CLI) {
-        replace(&saved.join(name), &directory.join(name))?;
-    }
-    if archive::hash(&directory.join(CLI)).ok().as_ref() != state.files.get(CLI)
-        && let Err(error) = replace(&saved.join(CLI), &directory.join(CLI))
+    if archive::hash(&directory.join(PROGRAM)).ok().as_ref() != state.files.get(PROGRAM)
+        && let Err(error) = replace(&saved.join(PROGRAM), &directory.join(PROGRAM))
     {
         // Only the currently running image needs Windows self-replacement.
         // A previous replacement may already have moved this process aside.
-        if dunce::canonicalize(std::env::current_exe()?).ok().as_ref() == Some(&directory.join(CLI))
+        if dunce::canonicalize(std::env::current_exe()?).ok().as_ref()
+            == Some(&directory.join(PROGRAM))
         {
-            self_replace::self_replace(saved.join(CLI))?;
+            self_replace::self_replace(saved.join(PROGRAM))?;
         } else {
             return Err(error);
         }
@@ -496,11 +473,10 @@ mod tests {
         ] {
             let directory = temp.path().join(scenario);
             fs::create_dir(&directory).unwrap();
-            fs::copy(std::env::current_exe().unwrap(), directory.join(CLI)).unwrap();
-            fs::write(directory.join(DESKTOP), "old desktop").unwrap();
+            fs::copy(std::env::current_exe().unwrap(), directory.join(PROGRAM)).unwrap();
             fs::write(directory.join("user-data.txt"), "keep me").unwrap();
-            let old = archive::hash(&directory.join(CLI)).unwrap();
-            let output = Command::new(directory.join(CLI))
+            let old = archive::hash(&directory.join(PROGRAM)).unwrap();
+            let output = Command::new(directory.join(PROGRAM))
                 .args([
                     "--exact",
                     "update::install::tests::child_operation",
@@ -521,24 +497,15 @@ mod tests {
             );
             if scenario == "uninstall" {
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-                while directory.join(CLI).exists() && std::time::Instant::now() < deadline {
+                while directory.join(PROGRAM).exists() && std::time::Instant::now() < deadline {
                     std::thread::sleep(std::time::Duration::from_millis(20));
                 }
-                assert!(!directory.join(CLI).exists());
-                assert!(!directory.join(DESKTOP).exists());
+                assert!(!directory.join(PROGRAM).exists());
             } else if scenario == "update" {
-                assert_ne!(archive::hash(&directory.join(CLI)).unwrap(), old);
-                assert_eq!(
-                    fs::read_to_string(directory.join(DESKTOP)).unwrap(),
-                    "new desktop"
-                );
+                assert_ne!(archive::hash(&directory.join(PROGRAM)).unwrap(), old);
                 Receipt::read(&directory).unwrap();
             } else {
-                assert_eq!(archive::hash(&directory.join(CLI)).unwrap(), old);
-                assert_eq!(
-                    fs::read_to_string(directory.join(DESKTOP)).unwrap(),
-                    "old desktop"
-                );
+                assert_eq!(archive::hash(&directory.join(PROGRAM)).unwrap(), old);
             }
             assert!(!directory.join(RECOVERY).exists());
         }
@@ -551,9 +518,12 @@ mod tests {
         };
         let directory = directory().unwrap();
         // Only the parent-created copy is named gitwatch; cargo's test executable is not.
-        assert_eq!(std::env::current_exe().unwrap().file_name().unwrap(), CLI);
+        assert_eq!(
+            std::env::current_exe().unwrap().file_name().unwrap(),
+            PROGRAM
+        );
         let installation = Installation {
-            files: [CLI, DESKTOP]
+            files: [PROGRAM]
                 .into_iter()
                 .map(|name| (name.into(), archive::hash(&directory.join(name)).unwrap()))
                 .collect(),
@@ -568,7 +538,7 @@ mod tests {
         if matches!(scenario.as_str(), "recover" | "cleanup") {
             installation.backup().unwrap();
             if scenario == "recover" {
-                fs::write(directory.join(DESKTOP), "interrupted").unwrap();
+                fs::write(directory.join(RECEIPT), "interrupted").unwrap();
             } else {
                 let mut state = recovery(&directory).unwrap();
                 state.committed = true;
@@ -577,27 +547,26 @@ mod tests {
                     &serde_json::to_vec(&state).unwrap(),
                 )
                 .unwrap();
-                fs::remove_file(directory.join(RECOVERY).join(CLI)).unwrap();
+                fs::remove_file(directory.join(RECOVERY).join(PROGRAM)).unwrap();
             }
             restore(&directory).unwrap();
             return;
         }
         let staging = tempfile::tempdir_in(&directory).unwrap();
-        fs::copy(directory.join(CLI), staging.path().join(CLI)).unwrap();
+        fs::copy(directory.join(PROGRAM), staging.path().join(PROGRAM)).unwrap();
         File::options()
             .append(true)
-            .open(staging.path().join(CLI))
+            .open(staging.path().join(PROGRAM))
             .unwrap()
             .write_all(b"new release")
             .unwrap();
-        fs::write(staging.path().join(DESKTOP), "new desktop").unwrap();
         for name in ["LICENSE", "OFL.txt", "NOTICE"] {
             fs::write(staging.path().join(name), "notice").unwrap();
         }
         let mut receipt = Receipt {
             version: super::super::VERSION.into(),
             target: super::super::target().unwrap().into(),
-            files: [CLI, DESKTOP]
+            files: [PROGRAM]
                 .into_iter()
                 .map(|name| {
                     (
@@ -608,10 +577,10 @@ mod tests {
                 .collect(),
         };
         if scenario == "rollback" {
-            fs::remove_file(staging.path().join(CLI)).unwrap();
+            fs::remove_file(staging.path().join(PROGRAM)).unwrap();
         }
         if scenario == "rollback_after" {
-            receipt.files.insert(CLI.into(), "00".repeat(32));
+            receipt.files.insert(PROGRAM.into(), "00".repeat(32));
         }
         let result = installation.install(staging.path(), &receipt);
         assert_eq!(result.is_ok(), scenario == "update", "{result:?}");

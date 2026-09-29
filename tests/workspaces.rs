@@ -322,7 +322,7 @@ fn named_branches_rename_history_and_reject_conflicting_tasks() {
         git(&remote, &["show", "legacy:files/AGENTS.md"]),
         "new contents"
     );
-    // CLI/API backup creation shares the name namespace used by GUI pull/watch tasks.
+    // Backup creation shares the name namespace used by GUI pull/watch tasks.
     fs::write(
         store.directory().join("tasks.json"),
         serde_json::to_vec(&serde_json::json!([{

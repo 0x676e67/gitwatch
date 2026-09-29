@@ -30,14 +30,8 @@ fn repository() -> TempDir {
 fn selected_commits_preserve_other_staged_files_and_refuse_partial_staging() {
     let temp = repository();
     let root = temp.path();
-    let mut watcher = Repository::open(
-        root.join("watched.md"),
-        None,
-        WatchOptions::default()
-            .message("Auto %d / %d")
-            .date_format("+%Y"),
-    )
-    .unwrap();
+    let mut watcher =
+        Repository::open(root.join("watched.md"), None, WatchOptions::default()).unwrap();
     fs::write(root.join("other.md"), "staged independently").unwrap();
     git(root, &["add", "other.md"]);
     fs::write(root.join("watched.md"), "edited").unwrap();
@@ -251,7 +245,7 @@ fn polling_detects_content_edits_without_committing_the_startup_baseline() {
 }
 
 #[test]
-fn upload_retries_without_new_changes_and_message_command_receives_selected_paths() {
+fn upload_retries_without_new_changes() {
     use gitwatch::workspace::UploadState;
     let temp = repository();
     let remote = TempDir::new().unwrap();
@@ -260,18 +254,12 @@ fn upload_retries_without_new_changes_and_message_command_receives_selected_path
         temp.path(),
         &["remote", "add", "origin", destination.to_str().unwrap()],
     );
-    let options = WatchOptions::default()
-        .remote("origin")
-        .branch("backup")
-        .message_command("git hash-object --stdin", true);
+    let options = WatchOptions::default().remote("origin").branch("backup");
     let mut watcher = Repository::open(temp.path().join("watched.md"), None, options).unwrap();
     fs::write(temp.path().join("watched.md"), "update").unwrap();
     let report = watcher.commit().unwrap();
     assert!(report.commit().is_some());
     assert!(matches!(report.upload(), UploadState::Failed { .. }));
-    fs::write(temp.path().join("expected-message"), "watched.md\n").unwrap();
-    let expected = git(temp.path(), &["hash-object", "expected-message"]);
-    assert_eq!(git(temp.path(), &["log", "-1", "--format=%s"]), expected);
     git(remote.path(), &["init", "--bare", "backup.git"]);
     assert!(matches!(
         watcher.retry_upload().unwrap(),

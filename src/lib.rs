@@ -10,18 +10,13 @@
 mod git;
 mod paths;
 mod preferences;
-#[cfg(feature = "desktop")]
 mod repository;
 #[cfg(test)]
 #[path = "../tests/support/git.rs"]
 mod test_git;
 
-#[cfg(feature = "desktop")]
 pub mod desktop;
-#[cfg(any(feature = "tui", feature = "desktop"))]
 mod interface;
-#[cfg(feature = "tui")]
-pub mod tui;
 
 pub mod i18n;
 pub mod pull;

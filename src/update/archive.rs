@@ -12,15 +12,10 @@ use sha2::{Digest, Sha256};
 use crate::{Result, paths};
 
 pub(super) const RECEIPT: &str = "gitwatch-install.json";
-pub(super) const CLI: &str = if cfg!(windows) {
+pub(super) const PROGRAM: &str = if cfg!(windows) {
     "gitwatch.exe"
 } else {
     "gitwatch"
-};
-pub(super) const DESKTOP: &str = if cfg!(windows) {
-    "gitwatch-desktop.exe"
-} else {
-    "gitwatch-desktop"
 };
 const MAX_EXPANDED: u64 = 512 * 1024 * 1024;
 
@@ -40,11 +35,7 @@ impl Receipt {
         );
         semver::Version::parse(&value.version)?;
         ensure!(
-            value.files.contains_key(CLI)
-                && value
-                    .files
-                    .keys()
-                    .all(|name| [CLI, DESKTOP].contains(&name.as_str())),
+            value.files.contains_key(PROGRAM) && value.files.len() == 1,
             "Invalid installation receipt"
         );
         for (name, digest) in &value.files {
@@ -127,17 +118,13 @@ pub(super) fn extract(archive: &Path, destination: &Path, version: &str) -> Resu
         receipt.version == version,
         "Release manifest version does not match"
     );
-    for name in [CLI, DESKTOP, "LICENSE", "OFL.txt", "NOTICE"] {
+    for name in [PROGRAM, "LICENSE", "OFL.txt", "NOTICE"] {
         ensure!(
             seen.contains(name),
             "Release archive is missing a required file"
         );
     }
-    ensure!(
-        receipt.files.contains_key(DESKTOP),
-        "Release manifest is missing the desktop program"
-    );
-    for name in [CLI, DESKTOP] {
+    for name in receipt.files.keys() {
         verify_binary(&destination.join(name))?;
     }
     Ok(receipt)
@@ -195,8 +182,7 @@ fn write_entry(
     ensure!(
         directory == prefix
             && [
-                CLI,
-                DESKTOP,
+                PROGRAM,
                 RECEIPT,
                 "LICENSE",
                 "README.md",
@@ -220,7 +206,7 @@ fn write_entry(
     );
     file.flush()?;
     #[cfg(unix)]
-    if [CLI, DESKTOP].contains(&name) {
+    if [PROGRAM].contains(&name) {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))?;
     }
@@ -253,15 +239,14 @@ mod tests {
         let receipt = Receipt {
             version: "9.0.0".into(),
             target: super::super::target().unwrap().into(),
-            files: [CLI, DESKTOP]
+            files: [PROGRAM]
                 .into_iter()
                 .map(|name| (name.into(), paths::digest(&program)))
                 .collect(),
         };
         let json = serde_json::to_vec(&receipt).unwrap();
         let files = [
-            (CLI, program.as_slice()),
-            (DESKTOP, program.as_slice()),
+            (PROGRAM, program.as_slice()),
             (RECEIPT, json.as_slice()),
             ("LICENSE", &b"license"[..]),
             ("OFL.txt", &b"font license"[..]),
@@ -302,18 +287,18 @@ mod tests {
             let destination = temp.path().join(extension);
             fs::create_dir(&destination).unwrap();
             extract(&path, &destination, "9.0.0").unwrap();
-            fs::write(destination.join(DESKTOP), "tampered").unwrap();
+            fs::write(destination.join(PROGRAM), "tampered").unwrap();
             assert!(Receipt::read(&destination).is_err());
-            assert!(verify_binary(&destination.join(DESKTOP)).is_err());
+            assert!(verify_binary(&destination.join(PROGRAM)).is_err());
             let mut wrong = program.clone();
             wrong[0] = 0;
-            fs::write(destination.join(DESKTOP), wrong).unwrap();
-            assert!(verify_binary(&destination.join(DESKTOP)).is_err());
+            fs::write(destination.join(PROGRAM), wrong).unwrap();
+            assert!(verify_binary(&destination.join(PROGRAM)).is_err());
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
                 assert_ne!(
-                    fs::metadata(destination.join(CLI))
+                    fs::metadata(destination.join(PROGRAM))
                         .unwrap()
                         .permissions()
                         .mode()
@@ -349,7 +334,7 @@ mod tests {
                 .is_err()
             );
         }
-        let name = format!("release/{CLI}");
+        let name = format!("release/{PROGRAM}");
         write_entry(
             &name,
             1,

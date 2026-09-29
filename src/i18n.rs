@@ -1,19 +1,14 @@
-//! Language selection and shared messages for the command line and native interfaces.
+//! Language selection and desktop messages.
 
 mod messages;
 
-use std::{
-    ffi::OsString,
-    fmt,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::{fmt, path::Path, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
 use crate::{Result, preferences::Preferences, workspace::BackupStore};
 
-/// A supported display language. Stored data and command names are language independent.
+/// A supported display language. Stored data is language independent.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Language {
     /// English, also used when a translation is unavailable.
@@ -26,35 +21,7 @@ pub enum Language {
 }
 
 impl Language {
-    /// Resolves language before parsing help, honoring global `--lang` and `--data-dir`.
-    pub fn from_args(args: &[OsString]) -> Result<Self> {
-        let mut explicit = None;
-        let mut directory = std::env::var_os("GITWATCH_DATA_DIR").map(PathBuf::from);
-        let mut args = args.iter().skip(1);
-        while let Some(argument) = args.next() {
-            if argument == "--" {
-                break;
-            }
-            if argument == "--lang" {
-                explicit = args
-                    .next()
-                    .and_then(|value| value.to_str())
-                    .map(str::to_owned);
-            } else if argument == "--data-dir" {
-                directory = args.next().map(PathBuf::from);
-            } else if let Some(argument) = argument.to_str() {
-                if let Some(value) = argument.strip_prefix("--lang=") {
-                    explicit = Some(value.into());
-                }
-                if let Some(value) = argument.strip_prefix("--data-dir=") {
-                    directory = Some(value.into());
-                }
-            }
-        }
-        Self::resolve(explicit.as_deref(), directory.as_deref())
-    }
-
-    /// Returns the language identifier used by `--lang` and saved preferences.
+    /// Returns the language identifier used by saved preferences.
     pub fn code(self) -> &'static str {
         match self {
             Self::English => "en",
@@ -147,75 +114,6 @@ impl Language {
         }
         error.into()
     }
-
-    /// Localizes help while preserving argument and subcommand identifiers.
-    pub fn command(self, mut command: clap::Command) -> clap::Command {
-        if self == Self::English {
-            return command;
-        }
-        command.build();
-        if let Some(about) = command.get_about() {
-            let about = self.text(&about.to_string()).to_owned();
-            command = command.about(about);
-        }
-        let arguments: Vec<_> = command.get_arguments().cloned().collect();
-        for argument in arguments {
-            let help = argument
-                .get_help()
-                .map(|help| self.text(&help.to_string()).to_owned());
-            let heading = self.text(if argument.is_positional() {
-                "Arguments"
-            } else {
-                "Options"
-            });
-            command = command.mut_arg(argument.get_id().clone(), |arg| {
-                let arg = match help {
-                    Some(help) => arg.help(help),
-                    None => arg,
-                };
-                arg.help_heading(heading)
-            });
-        }
-        command
-            .subcommand_help_heading(self.text("Commands"))
-            .help_template("{about-with-newline}\n用法：{usage}\n\n{all-args}{after-help}")
-            .mut_subcommands(|subcommand| self.command(subcommand))
-    }
-
-    /// Renders parser diagnostics in the selected language without changing user values.
-    pub fn argument_error(self, error: &clap::Error) -> String {
-        use clap::error::{ContextKind, ErrorKind};
-        if self == Self::English {
-            return error.to_string();
-        }
-        let heading = match error.kind() {
-            ErrorKind::UnknownArgument => "Unknown argument",
-            ErrorKind::InvalidSubcommand => "Unknown subcommand",
-            ErrorKind::MissingRequiredArgument => "Missing required arguments",
-            ErrorKind::MissingSubcommand => "Choose a subcommand",
-            ErrorKind::ArgumentConflict => "Conflicting arguments",
-            ErrorKind::InvalidValue | ErrorKind::ValueValidation => "Invalid argument value",
-            ErrorKind::TooManyValues | ErrorKind::TooFewValues | ErrorKind::WrongNumberOfValues => {
-                "Incorrect number of argument values"
-            }
-            _ => "Invalid command-line arguments",
-        };
-        let mut text = format!("{}\n", self.text(heading));
-        for (kind, value) in error.context() {
-            let label = match kind {
-                ContextKind::InvalidArg => "Argument",
-                ContextKind::InvalidSubcommand => "Subcommand",
-                ContextKind::InvalidValue => "Value",
-                ContextKind::ValidValue => "Allowed values",
-                ContextKind::PriorArg => "Conflicts with",
-                ContextKind::ValidSubcommand => "Available commands",
-                _ => continue,
-            };
-            text.push_str(&format!("{}: {value}\n", self.text(label)));
-        }
-        text.push_str(self.text("Run --help to see usage.\n"));
-        text
-    }
 }
 
 impl FromStr for Language {
@@ -284,7 +182,6 @@ fn captures<'a>(template: &str, text: &'a str) -> Option<Vec<&'a str>> {
     rest.is_empty().then_some(values)
 }
 
-#[cfg(any(feature = "desktop", feature = "tui"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Text {
     Message(&'static str, Vec<Text>),
@@ -292,13 +189,11 @@ pub(crate) enum Text {
     Error(String),
 }
 
-#[cfg(any(feature = "desktop", feature = "tui"))]
 impl Text {
     pub fn clear(&mut self) {
         *self = Self::default();
     }
 
-    #[cfg(feature = "desktop")]
     pub fn is_empty(&self) -> bool {
         matches!(self, Self::Value(value) if value.is_empty())
     }
@@ -326,21 +221,18 @@ impl Text {
     }
 }
 
-#[cfg(any(feature = "desktop", feature = "tui"))]
 impl Default for Text {
     fn default() -> Self {
         Self::Value(String::new())
     }
 }
 
-#[cfg(any(feature = "desktop", feature = "tui"))]
 impl From<&'static str> for Text {
     fn from(value: &'static str) -> Self {
         Self::Message(value, Vec::new())
     }
 }
 
-#[cfg(any(feature = "desktop", feature = "tui"))]
 impl fmt::Display for Text {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.render(Language::English))

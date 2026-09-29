@@ -4,11 +4,11 @@ version = "0.3.3"
 edition = "2024"
 rust-version = "1.96"
 license = "Apache-2.0 AND OFL-1.1"
-description = "Cross-platform Git watching and workspace branch backups"
+description = "Desktop Git watching, workspace backups and synchronization"
 repository = "https://github.com/0x676e67/gitwatch"
 readme = "README.md"
-keywords = ["git", "backup", "watch", "cli", "workspace"]
-categories = ["command-line-utilities", "filesystem"]
+keywords = ["git", "backup", "watch", "workspace"]
+categories = ["filesystem"]
 default-run = "gitwatch"
 include = ["/src/**", "/tests/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
 
@@ -16,21 +16,9 @@ include = ["/src/**", "/tests/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "
 name = "gitwatch"
 path = "src/main.rs"
 
-[[bin]]
-name = "gitwatch-desktop"
-path = "src/bin/desktop.rs"
-required-features = ["desktop"]
-
-[features]
-default = []
-tui = ["dep:ratatui", "dep:crossterm"]
-desktop = ["dep:eframe", "dep:rfd", "dep:tray-icon"]
-
 [dependencies]
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-clap = { version = "4.6", features = ["derive", "env", "string"] }
-ctrlc = "3.5"
 dirs = "6"
 dunce = "1"
 fs2 = "0.4"
@@ -40,7 +28,6 @@ regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-shlex = "2"
 semver = "1"
 self-replace = "1.5"
 ureq = { version = "3.4", default-features = false, features = ["rustls"] }
@@ -50,8 +37,6 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 sys-locale = "0.3"
 tempfile = "3"
 uuid = { version = "1", features = ["v4", "serde"] }
-ratatui = { version = "0.30", optional = true }
-crossterm = { version = "0.29", optional = true }
-eframe = { version = "0.36", default-features = false, features = ["default_fonts", "glow", "links", "x11", "wayland"], optional = true }
-rfd = { version = "0.17", optional = true }
-tray-icon = { version = "0.25.1", default-features = false, features = ["ksni"], optional = true }
+eframe = { version = "0.36", default-features = false, features = ["default_fonts", "glow", "links", "x11", "wayland"] }
+rfd = "0.17"
+tray-icon = { version = "0.25.1", default-features = false, features = ["ksni"] }

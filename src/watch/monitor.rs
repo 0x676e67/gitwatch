@@ -10,7 +10,6 @@ use std::{
 
 use anyhow::{Context, ensure};
 use notify::{RecursiveMode, Watcher};
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -39,10 +38,9 @@ pub struct MonitorOptions {
     max_wait: Duration,
     commit_on_start: bool,
     native: bool,
-    events: Vec<String>,
 }
 
-/// A typed event shared by the CLI, TUI and desktop interface.
+/// A typed task event reported to the desktop interface.
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "event", content = "detail", rename_all = "snake_case")]
 pub enum Event {
@@ -83,7 +81,6 @@ impl StopToken {
     }
 
     /// Inherits shutdown without sharing manual run or per-task stop requests.
-    #[cfg(any(feature = "desktop", feature = "tui"))]
     pub(crate) fn child(&self) -> Self {
         Self(Arc::new(Signals {
             parent: Some(self.clone()),
@@ -92,7 +89,6 @@ impl StopToken {
     }
 
     /// Coalesces pending requests for the task's next safe operation boundary.
-    #[cfg(any(feature = "desktop", feature = "tui", test))]
     pub(crate) fn request_once(&self) {
         self.0.run_once.store(true, Ordering::Relaxed);
     }
@@ -130,12 +126,6 @@ impl MonitorOptions {
         self.native = enabled;
         self
     }
-    /// Filters native events using portable create/modify/delete/move names.
-    /// Periodic reconciliation still detects missed content changes.
-    pub fn events(mut self, events: Vec<String>) -> Self {
-        self.events = events;
-        self
-    }
 }
 
 impl Default for MonitorOptions {
@@ -146,7 +136,6 @@ impl Default for MonitorOptions {
             max_wait: Duration::from_secs(60),
             commit_on_start: false,
             native: true,
-            events: Vec::new(),
         }
     }
 }
@@ -309,15 +298,6 @@ fn run(
             .all(|duration| Instant::now().checked_add(duration).is_some()),
         "Watch duration exceeds the platform clock range"
     );
-    for event in &options.events {
-        ensure!(
-            matches!(
-                event.as_str(),
-                "create" | "modify" | "delete" | "move" | "move_self" | "close_write"
-            ),
-            "Unsupported portable event: {event}"
-        );
-    }
     let mut root_error = String::new();
     let root = loop {
         if stop.is_stopped() {
@@ -336,26 +316,18 @@ fn run(
         Job::Repository(repo) => Some(repo.target().to_path_buf()),
         _ => None,
     };
-    let exclusion = match &job {
-        Job::Repository(repo) => repo.options().exclusion().map(Regex::new).transpose()?,
-        _ => None,
-    };
-    let event_filter = options.events.clone();
     let (tx, rx) = mpsc::sync_channel(1);
     let mut native = if options.native {
         match notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
             let relevant = match event {
                 Ok(event) => {
-                    event_matches(&event, &event_filter)
+                    event_changes_content(&event)
                         && event.paths.iter().any(|path| {
                             watched_scope.as_ref().is_none_or(|scope| {
                                 path.starts_with(scope) || scope.starts_with(path)
                             }) && !path
                                 .components()
                                 .any(|p| p.as_os_str().eq_ignore_ascii_case(".git"))
-                                && !exclusion
-                                    .as_ref()
-                                    .is_some_and(|r| r.is_match(&path.to_string_lossy()))
                         })
                 }
                 Err(_) => true,
@@ -514,19 +486,15 @@ fn emit_error(report: &mut impl FnMut(Event), last: &mut String, error: String) 
     }
 }
 
-fn event_matches(event: &notify::Event, filter: &[String]) -> bool {
-    use notify::event::{AccessKind, AccessMode, ModifyKind};
-    let category = match event.kind {
-        notify::EventKind::Create(_) => "create",
-        notify::EventKind::Modify(ModifyKind::Name(_)) => "move",
-        notify::EventKind::Modify(_) => "modify",
-        notify::EventKind::Remove(_) => "delete",
-        notify::EventKind::Access(AccessKind::Close(AccessMode::Write)) => "close_write",
-        notify::EventKind::Any | notify::EventKind::Other => return true,
-        _ => return false,
-    };
-    filter.is_empty()
-        || filter
-            .iter()
-            .any(|name| name == category || (name == "move_self" && category == "move"))
+fn event_changes_content(event: &notify::Event) -> bool {
+    use notify::event::{AccessKind, AccessMode};
+    matches!(
+        event.kind,
+        notify::EventKind::Create(_)
+            | notify::EventKind::Modify(_)
+            | notify::EventKind::Remove(_)
+            | notify::EventKind::Access(AccessKind::Close(AccessMode::Write))
+            | notify::EventKind::Any
+            | notify::EventKind::Other
+    )
 }
