@@ -377,7 +377,12 @@ impl BackupStore {
         let local = self.sync_commit(workspace, &source, old.as_deref())?;
         self.git
             .update_ref(&workspace.reference(), &local, old.as_deref())?;
-        self.save_report(&self.sync_report(workspace, &local, UploadState::Pending)?)?;
+        self.save_report(&self.sync_report(
+            workspace,
+            &local,
+            old.as_deref() != Some(&local),
+            UploadState::Pending,
+        )?)?;
         self.git.run(["fetch", "--prune", "origin"])?;
         let remote = self
             .git
@@ -452,6 +457,7 @@ impl BackupStore {
             }
         };
         pending.commit = Some(commit.clone());
+        let changed = old.as_deref() != Some(&commit);
         pending.entries = self.sync_entries(
             workspace,
             &pending.source,
@@ -472,13 +478,13 @@ impl BackupStore {
             state.applied = Some(commit);
             state.pending = None;
             self.save_sync(id, &state)?;
-            return self.push_sync(workspace);
+            return self.push_sync(workspace, changed);
         }
         pending.phase = SyncPhase::Preview;
         state.pending = Some(pending);
         self.save_sync(id, &state)?;
         self.apply_sync_locked(workspace, &mut state)?;
-        self.push_sync(workspace)
+        self.push_sync(workspace, changed)
     }
 
     /// Confirms the exact saved preview, or resumes its journal after interruption.
@@ -1101,7 +1107,12 @@ impl BackupStore {
             self.git
                 .update_ref(&workspace.reference(), commit, pending.local.as_deref())?;
         }
-        self.save_report(&self.sync_report(workspace, commit, UploadState::Pending)?)?;
+        self.save_report(&self.sync_report(
+            workspace,
+            commit,
+            pending.local.as_deref() != Some(commit),
+            UploadState::Pending,
+        )?)?;
         state.applied = Some(commit.to_owned());
         state.enabled = pending.enable;
         if !pending.entries.is_empty() {
@@ -1193,19 +1204,20 @@ impl BackupStore {
         &self,
         workspace: &Workspace,
         commit: &str,
+        changed: bool,
         upload: UploadState,
     ) -> Result<BackupReport> {
         Ok(BackupReport {
             workspace: workspace.id,
             commit: commit.into(),
-            changed: true,
+            changed,
             files: self.blobs(commit)?.len(),
             retained: Vec::new(),
             upload,
         })
     }
 
-    fn push_sync(&self, workspace: &Workspace) -> Result<BackupReport> {
+    fn push_sync(&self, workspace: &Workspace, changed: bool) -> Result<BackupReport> {
         let reference = workspace.reference();
         let commit = self
             .git
@@ -1220,7 +1232,7 @@ impl BackupStore {
                 message: error.to_string(),
             },
         };
-        let report = self.sync_report(workspace, &commit, upload)?;
+        let report = self.sync_report(workspace, &commit, changed, upload)?;
         self.save_report(&report)?;
         Ok(report)
     }

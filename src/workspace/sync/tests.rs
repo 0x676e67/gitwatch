@@ -98,6 +98,8 @@ fn two_devices_integrate_edits_deletions_and_preserve_source_git() {
             fs::read(pair.left.join("notes/local.txt")).unwrap(),
             b"local edit\n"
         );
+        let unchanged = pair.a.synchronize(pair.id).unwrap();
+        assert!(!unchanged.changed());
     }
 }
 
@@ -334,7 +336,7 @@ fn remote_polling_needs_no_local_event_and_push_races_never_force_remote_history
     )
     .unwrap();
     let remote = pair.a.synchronize(pair.id).unwrap().commit().to_owned();
-    let rejected = pair.b.push_sync(&workspace).unwrap();
+    let rejected = pair.b.push_sync(&workspace, true).unwrap();
     assert!(matches!(rejected.upload(), UploadState::Failed { .. }));
     assert_eq!(pair.a.git.resolve("refs/heads/notes").unwrap(), remote);
     pair.b.synchronize(pair.id).unwrap();
