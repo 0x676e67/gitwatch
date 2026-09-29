@@ -322,9 +322,21 @@ pub(crate) fn execute(
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    let mut child = command
-        .spawn()
-        .context("Could not start process; check the executable is installed")?;
+    let child = command.spawn().with_context(|| {
+        format!(
+            "Could not start executable '{}'",
+            command.get_program().to_string_lossy()
+        )
+    });
+    let mut child = if command.get_program()
+        == std::env::var_os("GW_GIT_BIN").unwrap_or_else(|| "git".into())
+    {
+        child.context(
+            "Cannot run Git; install Git, make sure it is on PATH, then restart gitwatch. If GW_GIT_BIN is set, check that path",
+        )?
+    } else {
+        child?
+    };
     let start = Instant::now();
     loop {
         if let Some(status) = child.try_wait()? {
@@ -510,6 +522,21 @@ mod tests {
             "{}\n{}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn missing_executable_keeps_its_name_and_io_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let command = Command::new(temp.path().join("missing-helper"));
+        let error = execute(command, None, Duration::from_secs(1))
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("missing-helper"));
+        assert!(!error.to_string().contains("install Git"));
+        assert_eq!(
+            error.downcast_ref::<std::io::Error>().unwrap().kind(),
+            std::io::ErrorKind::NotFound
         );
     }
 
