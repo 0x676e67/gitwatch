@@ -333,10 +333,17 @@ mod tests {
         assert!(executable.exists());
         panel.poll(true);
         assert!(panel.running.is_none());
-        let deadline = Instant::now() + Duration::from_secs(10);
+        // Debug executables include the GUI and its symbols; installation verifies and
+        // copies the entire image. This is a deadlock guard, not a latency assertion.
+        let size = fs::metadata(&executable).unwrap().len();
+        let started = Instant::now();
+        let deadline = started + Duration::from_secs(120);
         while !matches!(panel.state, State::Finished(_)) {
             panel.poll(true);
-            assert!(Instant::now() < deadline);
+            assert!(
+                Instant::now() < deadline,
+                "Installation did not finish for a {size}-byte test image"
+            );
             std::thread::sleep(Duration::from_millis(20));
         }
         assert!(matches!(panel.state, State::Finished(Ok(()))));
