@@ -28,4 +28,4 @@ Pull requests targeting `gh-pages` build and validate without deploying. After r
 
 One-time repository setup: set **Settings → Pages → Source** to **GitHub Actions**, and restrict the `github-pages` environment to the `gh-pages` branch. The first documentation PR requires the project owner's review before merge and before enabling publication. Merge the site before the README PR so its documentation links work.
 
-Only `_site/` is uploaded. Research notes and local backup data are never part of the site. Keep the displayed version and migration instructions aligned with the release. The old TUI page redirects to the upgrade guide.
+Only `_site/` is uploaded. Research notes and local backup data are never part of the site. Keep the displayed version and installation instructions aligned with the release. The old TUI page redirects to the desktop guide.

@@ -1,9 +1,0 @@
-<h2 id="install">Reinstall once</h2>
-<div class="callout">The 0.3.x updater expects a two-program archive and cannot install the new single-program package. Use Cargo or a fresh release download for this upgrade.</div>
-<ol><li>Quit every gitwatch instance from its tray menu.</li><li>For Cargo, run <code>cargo install gitwatch --version 0.4.0 --locked --force</code>. For archives, download 0.4.0 and extract the whole archive into a new folder.</li><li>Open the new <code>gitwatch</code> without arguments. Update shortcuts to point to it.</li></ol>
-<p>Application data paths are unchanged. Tasks and backups stay in their data directory. Copy the whole data directory before upgrading if you want a rollback copy. Do not copy the old installation receipt into the new folder.</p>
-<h2 id="changes">What changed?</h2>
-<ul><li><code>gitwatch</code> opens the desktop directly. Old <code>desktop</code> and <code>tui</code> subcommands and task-management commands are removed.</li><li>There is no separate <code>gitwatch-desktop</code> program and no interface feature flags.</li><li>Use <strong>App settings → Manage installation</strong> for supported archive installations, or your package manager for managed installations.</li><li>Use the language selector or <code>GITWATCH_LANG</code>, and <code>GITWATCH_DATA_DIR</code> for another store. The old command-line flags are gone.</li></ul>
-<p><code>gitwatch --version</code> still checks the version without opening a window.</p>
-<h2 id="sync">Existing backup tasks</h2>
-<p>Existing backups do not become two-way sync tasks automatically. Follow the <a href="sync.html">sync setup</a> and confirm the first preview on each computer to receive remote file changes.</p>

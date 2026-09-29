@@ -96,18 +96,6 @@
     }
   },
   {
-    "slug": "upgrade",
-    "group": 2,
-    "en": {
-      "title": "Upgrading from 0.3.x",
-      "description": "Version 0.4 is a desktop-only release with one executable."
-    },
-    "zh-CN": {
-      "title": "从 0.3.x 升级",
-      "description": "0.4 版本专注桌面应用，只保留一个可执行程序。"
-    }
-  },
-  {
     "slug": "development",
     "group": 2,
     "en": {
