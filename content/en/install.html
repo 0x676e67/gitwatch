@@ -1,23 +1,25 @@
-<h2 id="requirements">Requirements</h2>
-<p>Install <a href="https://git-scm.com/downloads">Git</a> and make sure <code>git --version</code> works in your terminal. Configure your Git author identity before creating commits:</p>
-<pre><code>git config --global user.name "Your Name"
-git config --global user.email "you@example.com"</code></pre>
-<p>These commands set the identity for all your repositories. To set it for just one repository, run them there without <code>--global</code>.</p>
-<h2 id="release">Published release</h2>
-<p>Download an archive for your platform from <a href="https://github.com/0x676e67/gitwatch/releases">GitHub Releases</a>, verify its SHA-256 checksum, and extract it. Git must be installed separately. Archives are available for Windows x86-64, Linux x86-64 and macOS Apple Silicon.</p>
-<p>Or install from crates.io with Rust 1.96 or newer:</p>
-<pre><code>cargo install gitwatch --locked                     # CLI
-cargo install gitwatch --locked --features tui      # CLI + TUI
-cargo install gitwatch --locked --all-features      # CLI + TUI + desktop</code></pre>
-<div class="callout">The latest published release is v0.1.0. This guide shows the current source build, including language selection, tray support and newer task controls. Build from source to use those features.</div>
+<h2 id="requirements">Install Git</h2>
+<p>gitwatch uses the Git executable on your computer. Install <a href="https://git-scm.com/downloads">Git</a> and check that <code>git --version</code> works in a new terminal. On Windows:</p>
+<pre><code>winget install --id Git.Git -e --source winget</code></pre>
+<p>Direct watching creates commits in your project. If necessary, configure the author identity inside that repository:</p>
+<pre><code>git config user.name "Your Name"
+git config user.email "you@example.com"</code></pre>
+<p>Remote operations use your existing Git credentials or SSH setup. Make sure that account can access the repository.</p>
+<h2 id="release">Download a release</h2>
+<p>Download your platform's archive from <a href="https://github.com/0x676e67/gitwatch/releases">GitHub Releases</a> and compare its SHA-256 checksum with <code>SHA256SUMS</code>. Extract the entire archive into a writable folder. Keep <code>gitwatch-install.json</code> beside the program; the in-app updater needs it.</p>
+<p>Archives cover Windows x86-64, Linux x86-64 and macOS Apple Silicon. Open <code>gitwatch.exe</code> on Windows, or run <code>./gitwatch</code> from the extracted folder on macOS or Linux. Git is installed separately.</p>
+<h2 id="cargo">Install with Cargo</h2>
+<p>With Rust 1.96 or newer:</p>
+<pre><code>cargo install gitwatch --locked
+gitwatch</code></pre>
+<p>The default installation includes the desktop app. No feature flags or subcommands are needed.</p>
 <h2 id="source">Build from source</h2>
 <pre><code>git clone https://github.com/0x676e67/gitwatch.git
 cd gitwatch
-cargo install --path . --locked --all-features
-gitwatch desktop</code></pre>
-<p>Use <code>--features tui</code> instead of <code>--all-features</code> for CLI and TUI, or omit the feature option for the CLI alone. The desktop executable is named <code>gitwatch-desktop</code>; <code>gitwatch desktop</code> launches it.</p>
+cargo install --path . --locked
+gitwatch</code></pre>
 <h2 id="linux">Linux desktop dependencies</h2>
-<p>Building the desktop app needs development packages for X11/Wayland, OpenGL and xkbcommon. On Ubuntu:</p>
+<p>On Ubuntu, install these build dependencies before compiling:</p>
 <pre><code>sudo apt-get install libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libgl1-mesa-dev</code></pre>
-<p>The CLI does not need desktop libraries. The GUI still uses the operating system's windowing and graphics libraries; it is not a fully self-contained graphical environment.</p>
-<p>The tray uses D-Bus StatusNotifierItem without GTK or AppIndicator libraries. A compatible tray host is required; GNOME may need a tray extension. If gitwatch cannot create a tray icon, the window stays visible and closing it exits.</p>
+<p>The app uses the system display server and graphics libraries, and needs a graphical session. Its tray uses D-Bus StatusNotifierItem with a compatible tray host; GNOME may need a tray extension. If a tray icon cannot be created, the window stays visible and closing it exits.</p>
+<p>Coming from an older release? Read the <a href="upgrade.html">0.4 migration guide</a> before updating.</p>

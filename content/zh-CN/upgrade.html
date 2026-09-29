@@ -1,0 +1,9 @@
+<h2 id="install">本次需要重新安装</h2>
+<div class="callout">0.3.x 更新器要求归档中包含两个程序，无法安装新的单程序包。本次升级请通过 Cargo 或重新下载发布归档完成。</div>
+<ol><li>从托盘退出所有 gitwatch 实例。</li><li>Cargo 安装执行 <code>cargo install gitwatch --version 0.4.0 --locked --force</code>；归档安装则下载 0.4.0，并将整个归档解压到新文件夹。</li><li>直接打开新的 <code>gitwatch</code>，不带参数；把快捷方式改为指向它。</li></ol>
+<p>应用数据路径不变，已有任务和备份仍保存在原数据目录。如需保留回退副本，可在升级前复制整个数据目录。不要把旧安装清单复制到新文件夹。</p>
+<h2 id="changes">使用方式有哪些变化？</h2>
+<ul><li><code>gitwatch</code> 直接打开桌面界面。旧的 <code>desktop</code>、<code>tui</code> 子命令和任务管理命令已移除。</li><li>不再提供单独的 <code>gitwatch-desktop</code> 程序，也不需要界面 feature 选项。</li><li>支持的归档安装可在<strong>应用设置 → 管理安装</strong>中更新或卸载；包管理器安装继续使用原包管理器。</li><li>语言通过选择器或 <code>GITWATCH_LANG</code> 设置，独立数据目录通过 <code>GITWATCH_DATA_DIR</code> 设置，不再使用旧命令行参数。</li></ul>
+<p>仍可使用 <code>gitwatch --version</code> 检查版本，不会打开窗口。</p>
+<h2 id="sync">已有备份任务</h2>
+<p>已有备份不会自动变为双向同步任务。需要获取远端文件更新时，请在每台电脑上按照<a href="sync.html">同步设置步骤</a>启用，并确认首次预览。</p>

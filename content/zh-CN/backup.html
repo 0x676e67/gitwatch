@@ -1,43 +1,22 @@
-<h2 id="select">选择要保存的文件</h2>
-<p>工作空间备份把指定文件复制到独立的裸 Git 仓库，每个工作空间使用一个分支。源目录不必是 Git 仓库，gitwatch 也不会在源目录中暂存文件或创建提交。</p>
-<pre><code>gitwatch workspace add ./project-a --name project-a --include notes.md --include notes
-gitwatch workspace add ./project-b --name project-b --include notes.md --include notes
-gitwatch workspace list
-gitwatch workspace backup project-a
-gitwatch workspace watch --all</code></pre>
-<p>请替换成自己的目录与文件选择。添加工作空间只保存设置；<code>backup</code> 执行一次备份，<code>watch --all</code> 则持续监听已注册的工作空间。</p>
-<h2 id="storage">分支与文件边界</h2>
-<p>每个备份任务保留稳定的内部 UUID。新任务默认使用任务名作为备份分支，空白转换为连字符，例如 <code>Quic notes</code> 对应 <code>Quic-notes</code>。如果名称不符合 Git 规则，可以单独指定分支。备份包含 <code>manifest.json</code> 和 <code>files/&lt;项目相对路径&gt;</code>。源目录的绝对路径只保存在本地配置中，因此另一台设备可以将同一份备份绑定到不同目录。</p>
-<p>可以选择被源项目 Git 规则忽略的文件，但 Git 元数据及已知凭据、缓存路径仍会排除。默认不接受符号链接，可以通过下方的任务选项启用；其他 Windows 重解析点仍不支持。单文件上限为 16 MiB，一次扫描的内容上限为 128 MiB、文件数量上限为 10,000。</p>
-<div class="callout">选中的文件消失后，会保留并报告它的最后一次备份。整个源目录不可用时会报错，不创建新备份。因此，工作空间备份与监听模式对源文件删除的处理不同。</div>
-<h2 id="links">备份符号链接目标</h2>
-<div class="callout">此选项将包含在下一次发布中；v0.2.0 不接受符号链接。</div>
-<p>编辑备份任务时，在桌面界面勾选<strong>跟随符号链接</strong>，或在 TUI 的对应字段按左右键切换。启用后，会读取链接目标中的实际文件，并按链接在项目中的相对路径保存；目标可以位于项目外。保存的是内容，不是链接本身。源根目录仍须为普通目录。</p>
-<pre><code>gitwatch workspace add ./project --name agents --include .agents --follow-links
-gitwatch workspace edit agents --follow-links true
-gitwatch workspace edit agents --follow-links false</code></pre>
-<p>此选项默认关闭，只保存在当前任务的本地配置中，导入备份不会自动启用。排除规则使用项目中可见的路径；定期内容检查会发现外部目标的变化。链接目标不存在时会跳过，该路径以前保存的文件仍保留在备份中。循环链接、无法读取的目标和指向备份数据的链接会报错，已有备份保持不变；凭据与缓存排除规则仍然生效。</p>
-<p>恢复预览仍会拒绝经过符号链接的目标路径。需要恢复这些内容时，可以先把备份绑定到另一个普通目录，再预览并确认恢复；恢复后得到普通文件和目录，不会通过链接改写原目标。</p>
-<h2 id="remote">配置远程备份仓库</h2>
-<p>任务还没有备份时，点击<strong>上传</strong>会自动创建第一份快照，再推送到远端。已有快照时，上传只发送已保存的历史，不会重新扫描源目录；要备份当前改动，请使用<strong>执行一次</strong>。上传失败会保留本地快照，之后可以重试。启用自动上传后，每次成功备份都会推送分支。</p>
-<pre><code>gitwatch workspace remote https://github.com/you/private-backup.git --auto-push
-gitwatch workspace fetch</code></pre>
-<p>根据备份内容选择适当的远程仓库。只需要本地备份时，可以不配置远程。获取历史不会恢复文件，推送也不会强制覆盖远程。如果历史发生分叉，本地备份仍会保留，需要你手动处理。</p>
-<h2 id="names">任务名称与分支变更</h2>
-<p>同一应用工作空间中的备份、监听和拉取任务不能重名。名称保留显示大小写，判重时忽略大小写和首尾空白，例如 <code>quic</code> 与 <code> Quic </code> 不能作为两个任务。不同应用工作空间可以使用相同名称。</p>
-<p>重命名备份任务时，本地分支和已配置的远端分支会一起迁移，并保留之前的提交。名称中的空白会转换为连字符；转换后的分支如果冲突，会拒绝保存。远端重命名需要网络连接，以及创建新分支、删除旧分支的权限。分支保护和仓库默认分支可能需要先在仓库设置中调整。遇到冲突时保留原绑定。仅修改大小写时，请先改成一个不同的中间名称，再改为目标名称。</p>
-<p>已有的 <code>workspaces/&lt;uuid&gt;</code> 绑定仍可使用。要在不更改任务名的情况下迁移分支，可以编辑任务的分支字段，或运行：</p>
-<pre><code>gitwatch workspace edit quic --branch quic</code></pre>
-<h2 id="restore">先预览，再恢复</h2>
-<p>在另一台设备配置远程并获取备份分支，然后把工作空间绑定到本地目录：</p>
-<pre><code>gitwatch workspace remote https://github.com/you/private-backup.git
-gitwatch workspace fetch
-gitwatch workspace import agents ./local-project
-gitwatch workspace history &lt;uuid&gt;
-gitwatch workspace restore &lt;uuid&gt; --preview
-gitwatch workspace restore &lt;uuid&gt; --plan &lt;preview-uuid&gt; --show notes.md
-gitwatch workspace restore &lt;uuid&gt; --plan &lt;preview-uuid&gt; --confirm</code></pre>
-<p>将 <code>&lt;uuid&gt;</code> 替换为工作空间 UUID，将 <code>&lt;preview-uuid&gt;</code> 替换为预览命令返回的 ID。尖括号表示占位符，不要原样输入。导入后工作空间保持暂停，便于先检查历史并恢复文件。</p>
-<ol><li>创建预览，核对将要发生变化的文件。</li><li>使用 <code>--show</code> 查看文件内容，或在桌面界面中检查预览。</li><li>确认准备写入后，再确认这份预览。</li></ol>
-<p>预览有效期为 24 小时；目标内容有变化时，需要重新创建预览。替换文件前，gitwatch 会把原内容保存在本地数据目录的 <code>recovery/&lt;preview-uuid&gt;/files/</code> 下。目标目录中额外存在的文件不会被删除。</p>
-<p>如果恢复中途停止，报告会列出已写入的文件及恢复副本的位置。检查完成前，请保留报告和恢复目录。</p>
+<h2 id="select">选择要备份的文件</h2>
+<p>添加文件备份任务并选择源目录。在包含列表中填写相对于项目根目录的文件或目录，每行一个，例如：</p>
+<pre><code>AGENTS.md
+.agents</code></pre>
+<p>包含项使用路径；排除项使用 glob 模式，同样每行一个，路径分隔符使用正斜杠。排除整个目录可填 <code>.agents/upstream</code>，排除任意层级的 Markdown 文件可填 <code>**/*.md</code>。排除规则优先。</p>
+<p>源目录不必是 Git 仓库。普通备份只读取文件，把副本提交到独立存储，不会在源仓库中暂存、提交或推送。</p>
+<h2 id="storage">历史与文件范围</h2>
+<p>每个备份任务在所属工作空间的备份仓库中有独立分支，快照包含清单和选中的文件。绝对源路径只保存在本机，另一台电脑可以使用不同目录。</p>
+<p>可以选择被源项目 Git 规则忽略的文件，但仍会排除 Git 元数据以及内置的凭据、缓存路径。单文件上限为 16 MiB，单次扫描总量为 128 MiB，最多 10,000 个文件。</p>
+<p>普通备份会保留源目录中已经消失的文件的最近备份。修改包含或排除规则后，不再属于选择范围的文件会从最新快照移除，旧的 Git 历史仍然保留。<a href="sync.html">双向同步</a>则会传播选中文件的删除。</p>
+<h2 id="links">符号链接</h2>
+<p><strong>跟随符号链接</strong>默认关闭。启用后，会把链接目标中的实际文件备份到链接的相对路径下，即使目标位于项目之外。不存在的目标会跳过，循环链接或无法读取的目标会报错。恢复目标必须是普通路径，双向同步不支持跟随链接。</p>
+<h2 id="remote">上传备份</h2>
+<p>创建工作空间时填写专用远程仓库地址，再在工作空间设置中配置自动上传。认证由 Git 处理。上传失败时，本地快照会保留，可稍后重试。</p>
+<p><strong>上传</strong>发送已保存的快照；尚无快照时会先创建一次。如果已经有快照，请先执行备份来保存新的本地修改，再上传。推送不会强制覆盖历史。需要合并其他电脑的修改时，请使用双向同步；上传操作不会下载文件。</p>
+<h2 id="names">任务名与分支</h2>
+<p>同一工作空间内，任务名忽略大小写和首尾空白后不能重复。新备份分支默认使用任务名，空白替换为连字符。重命名时同步重命名绑定的本地和远程分支，并保留历史。远端分支保护或重名可能阻止重命名。</p>
+<h2 id="restore">在另一台电脑上恢复</h2>
+<ol><li>创建工作空间，填写相同的备份仓库地址。</li><li>点击<strong>恢复远程备份</strong>，等待列表加载，选择分支和本地目标目录。</li><li>进入预览，检查文件和目标目录。新任务此时处于暂停状态。</li><li>勾选确认框，点击<strong>确认恢复</strong>，等待完成提示后再检查目标目录。</li></ol>
+<p>读取列表或创建任务本身不会写入源文件。已有任务可使用任务的恢复入口；需要恢复某个历史版本时，打开历史记录。目标目录中的额外文件会保留，链接路径不能作为恢复目标。</p>
+<p>预览在 24 小时后过期，目标文件变化后也需要重新预览。覆盖文件前会在数据目录保存恢复副本。如果恢复中断，请保留这些副本并检查活动记录。</p>
+<p>恢复完成后任务仍然暂停。启动普通备份可上传本地修改；如需两台电脑持续互相更新，请<a href="sync.html">启用双向同步</a>。</p>

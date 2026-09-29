@@ -1,23 +1,25 @@
-<h2 id="requirements">准备环境</h2>
-<p>安装 <a href="https://git-scm.com/downloads">Git</a>，确认终端中可以运行 <code>git --version</code>。创建提交前，需要设置 Git 作者身份：</p>
-<pre><code>git config --global user.name "Your Name"
-git config --global user.email "you@example.com"</code></pre>
-<p>上面的设置对所有仓库生效。如果只想设置某个仓库，请进入该仓库后去掉 <code>--global</code> 再运行。</p>
-<h2 id="release">安装已发布版本</h2>
-<p>从 <a href="https://github.com/0x676e67/gitwatch/releases">GitHub Releases</a> 下载对应平台的压缩包，核对 SHA-256 校验值后解压。Git 需要单独安装。目前提供 Windows x86-64、Linux x86-64 和 macOS Apple Silicon 的压缩包。</p>
-<p>也可以使用 Rust 1.96 或更新版本，从 crates.io 安装：</p>
-<pre><code>cargo install gitwatch --locked                     # 仅 CLI
-cargo install gitwatch --locked --features tui      # CLI + TUI
-cargo install gitwatch --locked --all-features      # CLI + TUI + 桌面应用</code></pre>
-<div class="callout">最新已发布版本是 v0.1.0。本文档展示当前源码版本，包含语言切换、托盘和较新的任务控制功能。使用这些功能需要从源码安装。</div>
-<h2 id="source">从源码安装</h2>
+<h2 id="requirements">安装 Git</h2>
+<p>gitwatch 会调用电脑上的 Git 程序。先安装 <a href="https://git-scm.com/downloads">Git</a>，再打开新终端，确认 <code>git --version</code> 可以运行。Windows 可以使用：</p>
+<pre><code>winget install --id Git.Git -e --source winget</code></pre>
+<p>Git 监听会直接在项目中创建提交。如果还没有配置作者身份，请在该仓库目录中执行：</p>
+<pre><code>git config user.name "Your Name"
+git config user.email "you@example.com"</code></pre>
+<p>远程操作使用已有的 Git 凭据或 SSH 配置，请确保对应账号拥有仓库访问权限。</p>
+<h2 id="release">下载发布版本</h2>
+<p>从 <a href="https://github.com/0x676e67/gitwatch/releases">GitHub Releases</a> 下载对应平台的归档，对照 <code>SHA256SUMS</code> 验证 SHA-256。把整个归档解压到可写目录；保留程序旁的 <code>gitwatch-install.json</code>，应用内更新需要它。</p>
+<p>预编译包支持 Windows x86-64、Linux x86-64 和 macOS Apple Silicon。在 Windows 打开 <code>gitwatch.exe</code>；在 macOS 或 Linux 的解压目录运行 <code>./gitwatch</code>。Git 需要另外安装。</p>
+<h2 id="cargo">使用 Cargo 安装</h2>
+<p>需要 Rust 1.96 或更新版本：</p>
+<pre><code>cargo install gitwatch --locked
+gitwatch</code></pre>
+<p>默认安装即为桌面应用，不需要 feature 选项或子命令。</p>
+<h2 id="source">从源码构建</h2>
 <pre><code>git clone https://github.com/0x676e67/gitwatch.git
 cd gitwatch
-cargo install --path . --locked --all-features
-gitwatch desktop</code></pre>
-<p>只需要 CLI 和 TUI 时，把 <code>--all-features</code> 换成 <code>--features tui</code>；只需要 CLI 时，省略功能选项即可。桌面程序名为 <code>gitwatch-desktop</code>，也可以通过 <code>gitwatch desktop</code> 启动。</p>
+cargo install --path . --locked
+gitwatch</code></pre>
 <h2 id="linux">Linux 桌面依赖</h2>
-<p>构建桌面应用需要 X11/Wayland、OpenGL 和 xkbcommon 的开发包。Ubuntu 可以使用：</p>
+<p>在 Ubuntu 上，编译前安装这些开发依赖：</p>
 <pre><code>sudo apt-get install libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libgl1-mesa-dev</code></pre>
-<p>CLI 不需要这些桌面库。GUI 仍然使用系统的窗口和图形库，并不是完全独立于系统组件的图形环境。</p>
-<p>托盘通过 D-Bus StatusNotifierItem 工作，不依赖 GTK 或 AppIndicator 库。桌面环境需要兼容的托盘宿主；GNOME 可能需要安装托盘扩展。如果无法创建托盘图标，应用会显示窗口，关闭窗口即退出。</p>
+<p>应用使用系统的显示服务和图形库，需要图形会话。托盘通过 D-Bus StatusNotifierItem 工作，需要兼容的托盘宿主；GNOME 可能需要托盘扩展。如果无法创建托盘图标，窗口会保持可见，关闭窗口即可退出。</p>
+<p>正在使用旧版本？更新前请阅读 <a href="upgrade.html">0.4 升级说明</a>。</p>

@@ -1,15 +1,13 @@
-<div class="actions"><a class="button" href="install.html">安装 gitwatch →</a><a class="button secondary" href="desktop.html">了解桌面应用</a></div>
-<figure><a href="../assets/screenshots/tasks-zh-CN.jpg"><img src="../assets/screenshots/tasks-zh-CN.jpg" alt="gitwatch 桌面应用展示三个演示任务及仓库信息" width="2560" height="1392"></a><figcaption>Windows 上的桌面应用，使用专门创建的演示仓库。点击截图可查看原图。</figcaption></figure>
-<h2 id="choose">选择适合你的任务模式</h2>
-<p>gitwatch 是受 <a href="https://github.com/gitwatch/gitwatch">gitwatch/gitwatch</a> 启发的 Rust 实现，支持 Windows、macOS 和 Linux。命令行、终端界面和桌面应用共用同一个业务核心。</p>
-<div class="cards"><a class="card" href="watch.html"><small>01 / watch</small><strong>随时记录文件变化</strong><span>监听文件或目录，在源项目的 Git 仓库中提交变化。</span><b aria-hidden="true">→</b></a><a class="card" href="backup.html"><small>02 / workspace</small><strong>备份指定文件</strong><span>把笔记或项目文件保存到独立 Git 仓库，每个工作空间使用一个分支。</span><b aria-hidden="true">→</b></a><a class="card" href="pull.html"><small>03 / pull</small><strong>定期更新本地仓库</strong><span>按设定的间隔拉取远程更新，并选择拉取策略。</span><b aria-hidden="true">→</b></a></div>
-<h2 id="quickstart">开始监听</h2>
-<p>安装 Git 和 gitwatch 后，指定现有 Git 仓库中的一个目录：</p>
-<pre><code>gitwatch ./notes</code></pre>
-<p>修改目录中的文件，等待变化稳定后，gitwatch 就会创建提交。按 <kbd>Ctrl+C</kbd> 停止。启动时已有的改动会作为初始状态；如果也要立即提交这些改动，可以加上 <code>-f</code>。</p>
-<div class="callout">监听模式会在源项目中写入 Git 提交。如果想让源项目的提交历史保持原样，请使用<a href="backup.html">工作空间备份</a>。</div>
-<h2 id="interfaces">选择使用界面</h2>
-<pre><code>gitwatch --help
-gitwatch tui
-gitwatch desktop</code></pre>
-<p>使用交互界面前，需要安装包含对应构建功能的版本。它们共用本地数据，并记住已启动的任务。同一数据目录同时只能由一个交互界面使用。</p>
+<h2 id="choose">你想做什么？</h2>
+<table><thead><tr><th>目标</th><th>选择</th></tr></thead><tbody>
+<tr><td>备份指定文件，不向项目仓库添加提交</td><td><a href="backup.html">文件备份</a></td></tr>
+<tr><td>在两台电脑上持续更新这些文件</td><td>为备份任务启用<a href="sync.html">双向同步</a></td></tr>
+<tr><td>直接在项目仓库中提交文件变化</td><td><a href="watch.html">Git 监听</a></td></tr>
+<tr><td>定时把远端提交拉取到普通 Git 仓库</td><td><a href="pull.html">定时拉取</a></td></tr>
+</tbody></table>
+<h2 id="start">从一个任务开始</h2>
+<ol><li><a href="install.html">安装 Git 和 gitwatch</a>，然后打开 <code>gitwatch</code>。</li><li>点击<strong>添加任务</strong>，选择任务类型和本地目录。</li><li>保存后先用任务的一次性操作检查结果，准备好后点击<strong>启动自动运行</strong>。</li></ol>
+<p>如果要在另一台电脑上使用已有备份，请先<a href="backup.html#restore">恢复远程备份</a>。仅创建任务不会下载备份文件。</p>
+<h2 id="desktop">桌面应用</h2>
+<p>gitwatch 支持 Windows、macOS 和 Linux，内置英语和简体中文。已启动的任务可以在托盘中继续运行。</p>
+<p>0.4 版本移除了命令行和终端界面。新的启动方式和安装步骤见<a href="upgrade.html">从 0.3.x 升级</a>。</p>

@@ -1,16 +1,16 @@
-<h2 id="checks">本地检查</h2>
-<pre><code>cargo +nightly fmt --all
-cargo test --all-features
-cargo clippy --all-features --all-targets -- -D warnings</code></pre>
-<p>CI 在 Windows、macOS 和 Linux 上检查 CLI、TUI、桌面及组合构建。测试使用临时仓库和本地远程。终端界面使用 Ratatui，桌面应用使用 egui/eframe。</p>
-<p>可以通过 <a href="https://github.com/0x676e67/gitwatch/issues">GitHub issue</a> 反馈问题或提出改进。请提供 gitwatch 版本、操作系统、任务模式、命令或复现步骤，以及相关错误消息。分享日志前，请移除私人路径、远程凭据和文件内容。</p>
-<h2 id="release">发布流程</h2>
-<p><a href="https://github.com/0x676e67/gitwatch/blob/main/.github/workflows/release.yml">Release 工作流</a> 构建包含 CLI 和桌面程序的压缩包，并生成 SHA-256 校验文件。目前不包含原生安装程序、签名、公证或自动冲突解决。</p>
-<p><code>v&lt;版本号&gt;</code> 标签需要与 Cargo.toml 一致，并指向 main 上的提交。推送标签后，检查通过即可发布 GitHub Release。Crates.io 使用 <code>release.yml</code> 和 <code>crates-io</code> 环境进行<a href="https://crates.io/docs/trusted-publishing">授信发布</a>；已发布的 crate 版本会跳过。新 crate 首次上传需先在本地完成，再配置授信。</p>
-<p>预演时，在 Actions 页面运行 Release，关闭 <code>publish</code>。手动发布已有标签时，选择标签并开启 <code>publish</code>。只发布 GitHub Release 时保持 <code>publish_crate</code> 关闭。</p>
-<h2 id="site">维护文档</h2>
-<p>文档站位于 <a href="https://github.com/0x676e67/gitwatch/tree/gh-pages">gh-pages 分支</a>。英语和中文页面共用模板与样式，使用 Python 生成静态 HTML，不依赖第三方构建包。本地预览步骤见该分支的 README。</p>
-<p>截图使用专门创建的演示仓库，不包含真实任务数据。操作流程变化时，请同步更新两种语言的内容。</p>
-<h2 id="license">许可证与致谢</h2>
-<p>代码使用 <a href="https://github.com/0x676e67/gitwatch/blob/main/LICENSE">Apache-2.0</a> 许可证。桌面内置字体使用 <a href="https://github.com/0x676e67/gitwatch/blob/main/assets/fonts/OFL.txt">OFL-1.1</a>，另见字体<a href="https://github.com/0x676e67/gitwatch/blob/main/assets/fonts/NOTICE">说明</a>。</p>
-<p>gitwatch 是受<a href="https://github.com/gitwatch/gitwatch">原版 shell 项目</a>启发的独立 Rust 实现，没有包含其 shell 源码。</p>
+<h2 id="build">本地构建</h2>
+<p>安装 Rust 1.96 或更新版本、Git，以及适用的 <a href="install.html#linux">Linux 依赖</a>。crate 只构建一个桌面程序，没有界面 feature 开关。</p>
+<pre><code>cargo build --locked
+cargo run --locked</code></pre>
+<h2 id="checks">运行检查</h2>
+<pre><code>cargo +nightly fmt --all --check
+cargo test --locked
+cargo clippy --locked --all-targets -- -D warnings
+cargo doc --locked --no-deps
+cargo package --locked</code></pre>
+<p>测试使用临时仓库。手动实验请通过 <code>GITWATCH_DATA_DIR</code> 指定独立数据目录，不要对真实文件进行破坏性的同步测试。</p>
+<h2 id="release">发布构建</h2>
+<p>CI 覆盖 Windows、macOS 和 Linux。版本标签会触发发布构建、校验和生成以及 crates.io 授信发布。归档包含桌面程序、安装清单和许可证。源码及发布版本可在 <a href="https://github.com/0x676e67/gitwatch">GitHub</a> 查看。</p>
+<h2 id="docs">文档</h2>
+<p>双语文档站位于独立的 <code>gh-pages</code> 分支，使用 Python 3.11 或更新版本，不依赖第三方包。提交前运行 <code>python build.py</code> 和 <code>python check.py</code>，检查链接和双语章节对应关系。</p>
+<p>Rust 代码采用 Apache-2.0 许可证；内置字体的 OFL-1.1 许可证和声明位于 <code>src/fonts/</code>。</p>

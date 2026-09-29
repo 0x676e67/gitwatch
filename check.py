@@ -67,7 +67,7 @@ def check():
     errors = []
     pages = {path.resolve(): Page(path) for path in SITE.rglob("*.html")}
     manifest = json.loads((ROOT / "pages.json").read_text(encoding="utf-8"))
-    if len(pages) != len(manifest) * 2 + 2:
+    if len(pages) != len(manifest) * 2 + 4:
         errors.append("unexpected page count")
     for path, page in pages.items():
         errors.extend(f"{path.relative_to(SITE)}: {error}" for error in page.errors)
@@ -80,8 +80,8 @@ def check():
                     errors.append(f"unsupported URL: {link}")
                 continue
             value = unquote(url.path)
-            if value.startswith("/gitwatch/"):
-                target = (SITE / value.removeprefix("/gitwatch/")).resolve()
+            if value.startswith("/"):
+                target = (SITE / value.lstrip("/")).resolve()
             else:
                 target = (path.parent / value).resolve() if value else path
             if not target.is_relative_to(SITE.resolve()) or not target.is_file():

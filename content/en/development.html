@@ -1,16 +1,16 @@
-<h2 id="checks">Local checks</h2>
-<pre><code>cargo +nightly fmt --all
-cargo test --all-features
-cargo clippy --all-features --all-targets -- -D warnings</code></pre>
-<p>CI checks CLI, TUI, desktop and combined builds on Windows, macOS and Linux. Tests use temporary repositories and local remotes. The terminal UI uses Ratatui; the desktop uses egui/eframe.</p>
-<p>Report bugs or propose changes in <a href="https://github.com/0x676e67/gitwatch/issues">GitHub issues</a>. Include the gitwatch version, operating system, task mode, command or steps, and the relevant error message. Remove private paths, remote credentials and file contents before sharing logs.</p>
-<h2 id="release">Release workflow</h2>
-<p>The <a href="https://github.com/0x676e67/gitwatch/blob/main/.github/workflows/release.yml">Release workflow</a> builds archives containing the CLI and desktop binaries, along with SHA-256 checksums. Native installers, signing, notarization and automatic conflict resolution are not included.</p>
-<p>A <code>v&lt;version&gt;</code> tag must match Cargo.toml and point to a commit on main. Pushing it publishes a GitHub Release after checks pass. Crates.io uploads use <a href="https://crates.io/docs/trusted-publishing">Trusted Publishing</a> through <code>release.yml</code> and the <code>crates-io</code> environment. Already published crate versions are skipped; a new crate's first upload must be done locally before configuring trust.</p>
-<p>To rehearse, run Release from the Actions tab with <code>publish</code> disabled. To publish an existing tag manually, select that tag and enable <code>publish</code>. Keep <code>publish_crate</code> disabled for a GitHub-only release.</p>
-<h2 id="site">Documentation</h2>
-<p>The site lives on the <a href="https://github.com/0x676e67/gitwatch/tree/gh-pages">gh-pages branch</a>. English and Chinese pages share one template and stylesheet. Python builds static HTML without third-party packages. Local preview instructions are in that branch's README.</p>
-<p>Screenshots use dedicated demonstration repositories. No real task data is included. Update both language versions when a workflow changes.</p>
-<h2 id="license">License and acknowledgements</h2>
-<p>Code is licensed under <a href="https://github.com/0x676e67/gitwatch/blob/main/LICENSE">Apache-2.0</a>. The bundled desktop font uses <a href="https://github.com/0x676e67/gitwatch/blob/main/assets/fonts/OFL.txt">OFL-1.1</a>; see its <a href="https://github.com/0x676e67/gitwatch/blob/main/assets/fonts/NOTICE">notice</a>.</p>
-<p>gitwatch is an independent Rust implementation inspired by <a href="https://github.com/gitwatch/gitwatch">the original shell project</a>. Upstream shell code is not included.</p>
+<h2 id="build">Build locally</h2>
+<p>Install Rust 1.96 or newer, Git and the <a href="install.html#linux">Linux libraries</a> if applicable. The crate builds one desktop executable with no interface feature switches.</p>
+<pre><code>cargo build --locked
+cargo run --locked</code></pre>
+<h2 id="checks">Run checks</h2>
+<pre><code>cargo +nightly fmt --all --check
+cargo test --locked
+cargo clippy --locked --all-targets -- -D warnings
+cargo doc --locked --no-deps
+cargo package --locked</code></pre>
+<p>Tests use temporary repositories. Keep manual experiments in a separate data directory using <code>GITWATCH_DATA_DIR</code>; do not test destructive sync scenarios against real files.</p>
+<h2 id="release">Release builds</h2>
+<p>CI checks Windows, macOS and Linux. Version tags trigger release builds, checksums and crates.io Trusted Publishing. Archives include the executable, installation receipt and licenses. Releases and source are on <a href="https://github.com/0x676e67/gitwatch">GitHub</a>.</p>
+<h2 id="docs">Documentation</h2>
+<p>The bilingual site lives on the separate <code>gh-pages</code> branch. It uses Python 3.11 or newer without third-party packages. Run <code>python build.py</code> and <code>python check.py</code> to validate links and translation sections before submitting changes.</p>
+<p>Rust code is Apache-2.0 licensed. Bundled fonts have their own OFL-1.1 license and notices under <code>src/fonts/</code>.</p>
