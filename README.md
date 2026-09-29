@@ -20,9 +20,7 @@ Keep both languages in sync, including section IDs. Use relative links so the si
 
 ## Screenshots
 
-Images in `assets/screenshots/` are unedited captures of the Windows desktop application based on source commit `f06d044ee5cd7d24d9b4ef1f16efa3e50f50eccd`, with the tray event wakeup fix applied, using dedicated demonstration repositories. They show the development version, not v0.1.0.
-
-Before replacing screenshots, close the running app, back up and verify any real application data, and use a clean demonstration store. Do not include personal tasks, paths, remote credentials or private repository contents. Restore the original data afterwards. Capture both interface languages and update the HTML image dimensions to match.
+The guide describes version 0.4. Historical demonstration screenshots remain in `assets/screenshots/` for existing external links, but are not embedded because they show an older interface. Replacements must use isolated demonstration data, never personal tasks or repositories.
 
 ## Publishing
 
@@ -30,4 +28,4 @@ Pull requests targeting `gh-pages` build and validate without deploying. After r
 
 One-time repository setup: set **Settings → Pages → Source** to **GitHub Actions**, and restrict the `github-pages` environment to the `gh-pages` branch. The first documentation PR requires the project owner's review before merge and before enabling publication. Merge the site before the README PR so its documentation links work.
 
-Only `_site/` is uploaded. Research notes and local backup data are never part of the site. Keep the development-version notice until a release includes the documented features.
+Only `_site/` is uploaded. Research notes and local backup data are never part of the site. Keep the displayed version and installation instructions aligned with the release. The old TUI page redirects to the desktop guide.

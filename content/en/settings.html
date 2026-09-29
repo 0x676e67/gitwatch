@@ -1,30 +1,19 @@
 <h2 id="language">Language and time</h2>
-<p>English and Simplified Chinese are supported. On first launch, gitwatch follows the system language and falls back to English for other languages. Choose a language from the desktop menu or press <kbd>F3</kbd> in the TUI to save your preference.</p>
-<pre><code>gitwatch --lang en --help
-gitwatch --lang zh-CN tui
-gitwatch --lang zh-CN desktop</code></pre>
-<p>The order of precedence is <code>--lang</code>, <code>GITWATCH_LANG</code>, saved preference, system language, then English. Command names, option names and JSON fields stay the same in both languages. Paths, file contents and Git's own messages are kept as they are.</p>
-<p>Repository commit dates use the system's local timezone and are displayed as <code>YYYY-MM-DD HH:MM:SS</code>. The date order is fixed; it does not yet follow regional date-format preferences.</p>
-<h2 id="data">Local application data</h2>
-<p>The store lives in your system's local application data directory. It contains task configuration, preferences, backup history and recovery files. To use a separate store:</p>
-<pre><code>gitwatch --data-dir ./gitwatch-data desktop</code></pre>
-<p>You can also set <code>GITWATCH_DATA_DIR</code>. Keep the store outside the projects you are backing up. Only one desktop or TUI instance can use a data directory at a time. Quit gitwatch before copying the entire store for a backup; keep the Git repository and configuration together.</p>
-<p>For scripts, <code>--json</code> produces structured CLI output with <code>schema_version: 1</code>.</p>
-<h2 id="workspaces">Workspace data and shared settings</h2>
-<p>In the next release, the desktop and TUI can keep <a href="desktop.html#workspaces">separate workspaces</a> inside one data directory. The default workspace uses the existing store in place. Custom workspaces keep their data under <code>spaces/</code>; their names and the current selection are saved in <code>spaces.json</code>.</p>
-<p>Language, start-in-tray preferences and update notices apply to the whole app. Tasks, their order, startup state, pull deadlines, backup history and backup remote belong to each workspace. Switching workspaces leaves started tasks running.</p>
-<p>To back up or move the application data, quit gitwatch and copy the entire data directory, including <code>spaces/</code> and <code>spaces.json</code>. Removing an empty workspace from the interface leaves its files in place.</p>
-<h2 id="update">Update an official release</h2>
-<pre><code>gitwatch self update --check
-gitwatch self update
-gitwatch self uninstall</code></pre>
-<p>These commands are in the source build and will be included in the next release. They are not available in v0.1.0. Keep <code>gitwatch-install.json</code> beside programs extracted from an official release archive. Older folders without this receipt need a fresh download.</p>
-<p>The updater verifies the download and checks that the new programs can start, then replaces the CLI and desktop together. A standalone CLI can update itself, too. Updates use the official build with TUI support: they do not preserve custom Cargo features or add a desktop binary to a CLI-only installation.</p>
-<p>Stop other gitwatch processes first. For the desktop, choose Quit from the tray menu; closing the window leaves it running. Update and uninstall list the affected programs and ask for confirmation. Use <code>--yes</code> in scripts. Uninstall preserves settings, backup history, recovery data and license notices.</p>
-<p>For Cargo installations, run <code>cargo install gitwatch --locked --force</code> with your original feature options. For a source installation, pull the source and repeat the <a href="install.html#source">source install command</a>. Use <code>cargo uninstall gitwatch</code> to remove a Cargo installation. Other package-managed installations should use their package manager.</p>
-<h2 id="recovery">Recover an interrupted update</h2>
-<pre><code>gitwatch self update --recover</code></pre>
-<p>The <code>.gitwatch-recovery</code> folder beside the executable keeps the previous programs until the update finishes. If the CLI is missing, copy its saved binary back to the installation directory before running recovery. Updates never downgrade automatically. To request a specific published version, use <code>--version &lt;version&gt;</code>.</p>
-<h2 id="notifications">New version notices</h2>
-<p>The desktop and TUI show a notice when a newer stable version is available. Interactive CLI sessions print the update command to stderr. Checks run in the background, are cached for a day and do not install anything. Network failures do not interrupt tasks.</p>
-<p>Set <code>GITWATCH_NO_UPDATE_CHECK=1</code> to disable automatic checks. Explicit <code>self update --check</code> still works. JSON and redirected CLI output do not include automatic notices.</p>
+<p>First launch follows the system language, falling back to English for unsupported languages. The language selector saves your preference. <code>GITWATCH_LANG</code> overrides it with <code>en</code> or <code>zh-CN</code>. Git's own messages and file contents stay unchanged.</p>
+<p>The latest commit shows one timestamp in your system timezone as <code>YYYY-MM-DD HH:MM:SS</code>. This is a commit timestamp, not the time a server received a push.</p>
+<h2 id="data">Data and cache directories</h2>
+<table><thead><tr><th>System</th><th>Application data</th></tr></thead><tbody><tr><td>Windows</td><td><code>%LOCALAPPDATA%\gitwatch\data</code></td></tr><tr><td>macOS</td><td><code>~/Library/Application Support/gitwatch</code></td></tr><tr><td>Linux</td><td><code>$XDG_DATA_HOME/gitwatch</code>, or <code>~/.local/share/gitwatch</code></td></tr></tbody></table>
+<p>Set <code>GITWATCH_DATA_DIR</code> before starting to use another data directory. Keep it outside projects being backed up. Only one app instance can use a data directory.</p>
+<p>Update-check cache is separate: <code>%LOCALAPPDATA%\gitwatch\cache</code> on Windows, <code>~/Library/Caches/gitwatch</code> on macOS, and <code>$XDG_CACHE_HOME/gitwatch</code> (normally <code>~/.cache/gitwatch</code>) on Linux.</p>
+<h2 id="workspaces">Move application data</h2>
+<p>Choose Quit from the tray, then copy the entire data directory. Keep configuration, backup repositories, recovery files, <code>spaces/</code> and <code>spaces.json</code> together. Switching workspaces does not stop tasks. On a computer with different source paths, the <a href="backup.html#restore">remote restore wizard</a> is usually easier than copying the store.</p>
+<h2 id="update">Update or uninstall</h2>
+<p>Open <strong>App settings → Manage installation</strong>. For an official archive installation, choose <strong>Check for updates</strong>, read the release notes, and confirm. The app stops all task workers before replacing the program. Close it when prompted, then reopen the installed executable.</p>
+<p><strong>Uninstall application</strong> also asks for confirmation. It removes the program while keeping task settings, backup history and recovery data.</p>
+<p>Cargo and other package-manager installations use that manager. Quit gitwatch first. To update a Cargo installation:</p>
+<pre><code>cargo install gitwatch --locked --force</code></pre>
+<p>To uninstall it, use <code>cargo uninstall gitwatch</code>. For local source installs, update the source and repeat <code>cargo install --path . --locked --force</code>. Preserve any custom Cargo installation root.</p>
+<h2 id="recovery">Interrupted installations</h2>
+<p>After an interrupted update, reopen gitwatch and accept the prompt to restore the previous installation. Reopen once more after recovery. Keep installation recovery files until the app starts successfully.</p>
+<h2 id="notifications">Version notices</h2>
+<p>Background checks look for newer stable releases and cache results for a day. They do not install automatically. Set <code>GITWATCH_NO_UPDATE_CHECK=1</code> to disable automatic checks; explicit checks remain available for supported installations.</p>

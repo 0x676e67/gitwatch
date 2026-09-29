@@ -1,30 +1,19 @@
 <h2 id="language">语言与时间</h2>
-<p>支持英语和简体中文。首次启动跟随系统语言，不支持的语言回退为英语。在桌面语言菜单中选择语言，或在 TUI 中按 <kbd>F3</kbd>，可以保存偏好。</p>
-<pre><code>gitwatch --lang en --help
-gitwatch --lang zh-CN tui
-gitwatch --lang zh-CN desktop</code></pre>
-<p>优先级依次为 <code>--lang</code>、<code>GITWATCH_LANG</code>、已保存偏好、系统语言，最后回退英语。命令名、选项名和 JSON 字段保持一致；路径、文件内容及 Git 自身消息保持原样。</p>
-<p>仓库提交时间使用系统的本地时区，显示格式为 <code>YYYY-MM-DD HH:MM:SS</code>。日期顺序目前固定，尚未跟随系统的地区格式偏好。</p>
-<h2 id="data">本地应用数据</h2>
-<p>数据保存在系统的本地应用数据目录，包括任务配置、偏好、备份历史和恢复副本。使用独立数据目录可以运行：</p>
-<pre><code>gitwatch --data-dir ./gitwatch-data desktop</code></pre>
-<p>也可以设置 <code>GITWATCH_DATA_DIR</code>。数据目录应放在被备份项目之外。同一数据目录同时只能供一个桌面或 TUI 实例使用。完整备份本地数据前，请先退出 gitwatch，并把 Git 仓库与配置一起保留。</p>
-<p>脚本可以使用 <code>--json</code> 获取结构化 CLI 输出，当前 <code>schema_version</code> 为 <code>1</code>。</p>
-<h2 id="workspaces">工作空间数据与共享设置</h2>
-<p>下一次发布的桌面应用和 TUI 支持在同一数据目录中保存<a href="desktop.html#workspaces">多个工作空间</a>。默认工作空间直接使用原有数据，不搬移文件；自定义工作空间的数据保存在 <code>spaces/</code> 中，名称和当前选择记录在 <code>spaces.json</code> 中。</p>
-<p>语言、启动时最小化到托盘和新版本提示属于整个应用。任务、任务顺序、启动状态、拉取截止时间、备份历史和备份远程各自属于对应工作空间。切换工作空间不会停止已启动的任务。</p>
-<p>备份或搬移应用数据时，请先退出 gitwatch，再复制整个数据目录，包含 <code>spaces/</code> 和 <code>spaces.json</code>。从界面移除空工作空间后，它的文件仍会保留。</p>
-<h2 id="update">更新官方发布版</h2>
-<pre><code>gitwatch self update --check
-gitwatch self update
-gitwatch self uninstall</code></pre>
-<p>这些命令已在源码版本中实现，将包含在下一次发布中；v0.1.0 尚不支持。从官方压缩包解压后，请保留程序旁的 <code>gitwatch-install.json</code>。没有安装凭据的旧目录需要重新下载完整压缩包。</p>
-<p>更新器会验证下载内容、检查新程序能否启动，再一起替换 CLI 和桌面程序。独立安装的 CLI 也能更新。更新使用包含 TUI 的官方构建，不保留自定义 Cargo 功能选择，也不会给仅 CLI 的安装补装桌面程序。</p>
-<p>操作前先停止其他 gitwatch 进程。桌面应用需要从托盘菜单选择退出，关闭窗口仍会后台运行。更新与卸载会列出受影响的程序并要求确认；脚本可以使用 <code>--yes</code>。卸载会保留设置、备份历史、恢复数据和许可证说明。</p>
-<p>Cargo 安装请使用 <code>cargo install gitwatch --locked --force</code>，并加上原来的功能选项。源码安装请先更新源码，再重新执行<a href="install.html#source">源码安装命令</a>。使用 <code>cargo uninstall gitwatch</code> 卸载 Cargo 安装。其他包管理器安装应通过对应包管理器更新与卸载。</p>
-<h2 id="recovery">恢复中断的更新</h2>
-<pre><code>gitwatch self update --recover</code></pre>
-<p>可执行文件旁的 <code>.gitwatch-recovery</code> 目录会保留旧程序，直到更新完成。如果 CLI 本身缺失，先将保存的旧二进制复制回安装目录，再运行恢复命令。更新不会自动降级；需要指定某个已发布版本时，使用 <code>--version &lt;版本号&gt;</code>。</p>
-<h2 id="notifications">新版本提示</h2>
-<p>有新的稳定版时，桌面应用和 TUI 会显示提示，交互式 CLI 则向 stderr 输出更新命令。检查在后台进行，结果缓存一天，不会自动安装。网络失败不会中断任务。</p>
-<p>设置 <code>GITWATCH_NO_UPDATE_CHECK=1</code> 可关闭自动检查，显式运行 <code>self update --check</code> 仍然有效。JSON 和重定向后的 CLI 输出不会混入自动更新提示。</p>
+<p>首次启动跟随系统语言，不支持的语言回退到英语。语言选择器会保存偏好，环境变量 <code>GITWATCH_LANG</code> 可用 <code>en</code> 或 <code>zh-CN</code> 覆盖该选择。Git 自身的消息和文件内容不会翻译。</p>
+<p>最近提交只显示一个时间，使用系统时区，格式为 <code>YYYY-MM-DD HH:MM:SS</code>。这是提交时间，不是服务器收到推送的时间。</p>
+<h2 id="data">数据与缓存目录</h2>
+<table><thead><tr><th>系统</th><th>应用数据</th></tr></thead><tbody><tr><td>Windows</td><td><code>%LOCALAPPDATA%\gitwatch\data</code></td></tr><tr><td>macOS</td><td><code>~/Library/Application Support/gitwatch</code></td></tr><tr><td>Linux</td><td><code>$XDG_DATA_HOME/gitwatch</code>，默认 <code>~/.local/share/gitwatch</code></td></tr></tbody></table>
+<p>启动前设置 <code>GITWATCH_DATA_DIR</code> 可指定其他数据目录，请放在备份源项目之外。同一数据目录只能由一个应用实例使用。</p>
+<p>更新检查缓存单独存放：Windows 使用 <code>%LOCALAPPDATA%\gitwatch\cache</code>，macOS 使用 <code>~/Library/Caches/gitwatch</code>，Linux 使用 <code>$XDG_CACHE_HOME/gitwatch</code>，通常为 <code>~/.cache/gitwatch</code>。</p>
+<h2 id="workspaces">迁移应用数据</h2>
+<p>先从托盘退出，再复制整个数据目录。配置、备份仓库、恢复文件、<code>spaces/</code> 和 <code>spaces.json</code> 要一起保留。切换工作空间不会停止任务。另一台电脑的源路径不同时，通常使用<a href="backup.html#restore">远程恢复向导</a>更方便。</p>
+<h2 id="update">更新或卸载</h2>
+<p>打开<strong>应用设置 → 管理安装</strong>。官方归档安装可以点击<strong>检查更新</strong>，阅读版本说明后确认。程序会先停止所有任务，再替换安装。按提示关闭程序，然后重新打开已安装的文件。</p>
+<p><strong>卸载应用</strong>同样需要确认，只移除程序，保留任务设置、备份历史和恢复数据。</p>
+<p>Cargo 或其他包管理器安装需要通过原包管理器处理。操作前先退出 gitwatch。更新 Cargo 安装：</p>
+<pre><code>cargo install gitwatch --locked --force</code></pre>
+<p>卸载使用 <code>cargo uninstall gitwatch</code>。本地源码安装先更新源码，再执行 <code>cargo install --path . --locked --force</code>。使用自定义 Cargo 安装根目录时，保持原设置。</p>
+<h2 id="recovery">安装中断</h2>
+<p>更新中断后，重新打开 gitwatch，按提示恢复原安装；恢复完成后再打开一次程序。确认能够正常启动前，请保留安装目录中的恢复文件。</p>
+<h2 id="notifications">版本提示</h2>
+<p>后台会检查新的稳定版本，结果缓存一天，不会自动安装。设置 <code>GITWATCH_NO_UPDATE_CHECK=1</code> 可关闭自动检查；支持应用内更新的安装仍可手动检查。</p>

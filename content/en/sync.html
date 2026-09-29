@@ -1,0 +1,15 @@
+<h2 id="enable">Enable sync for a backup task</h2>
+<p>First <a href="backup.html#restore">restore the same backup</a> on the other computer. Both tasks must use the same remote backup branch. Ordinary backups remain upload-only until you enable sync.</p>
+<ol><li>Select the task and open <strong>Two-way sync…</strong>.</li><li>Choose the strategy and remote check interval. Defaults are Rebase and 60 seconds; the interval range is 10 to 86,400 seconds.</li><li>Choose <strong>Preview first sync</strong> and review additions, replacements and deletions.</li><li>Acknowledge the changes, then choose <strong>Confirm sync changes</strong>.</li><li>Choose <strong>Start automatic runs</strong>. Enable sync separately on each computer that should exchange changes.</li></ol>
+<p>Automatic runs save local changes, fetch the backup branch, integrate history, apply selected files and push. Remote checks happen even without local edits. Sync can replace and delete selected files; other files and the source project's Git history are kept.</p>
+<h2 id="strategy">Choose how histories combine</h2>
+<table><thead><tr><th>Strategy</th><th>Behavior</th></tr></thead><tbody><tr><td>Rebase (default)</td><td>Replay local backup commits on remote history. Replayed commit IDs change.</td></tr><tr><td>Merge</td><td>Fast-forward when possible; otherwise create a merge commit.</td></tr><tr><td>Fast-forward only</td><td>Stop for attention if both sides have new commits.</td></tr></tbody></table>
+<p>Sync follows Git ancestry, not file timestamps. It does not force-push over remote history. Offline changes remain local until the next successful check.</p>
+<h2 id="conflicts">Resolve a conflict</h2>
+<ol><li>When sync pauses, open <strong>Resolve sync…</strong>.</li><li>Select a file and compare local, remote and common-ancestor contents.</li><li>Choose <strong>Keep local file</strong>, <strong>Keep remote file</strong>, or <strong>Edit merged text</strong>. For edited text, mark the conflict resolved and save. Binary and large files use the local/remote choices.</li><li>Resolve the remaining files, then choose <strong>Continue integration</strong>.</li><li>Review and confirm the resulting changes, then start automatic runs again.</li></ol>
+<p>Integration happens in the private backup repository. Do not run a rebase in your source project to resolve this backup conflict.</p>
+<h2 id="remote">Replace local files with the remote version</h2>
+<p>To discard local changes to selected files, choose <strong>Use remote version…</strong>. Review the preview, including deletions, then explicitly confirm. This is a recovery choice, not the normal sync strategy.</p>
+<p>Recovery copies are kept. When available, <strong>Undo last sync…</strong> previews a reversal of the last applied sync. Review and confirm before resuming work.</p>
+<h2 id="limits">File boundaries</h2>
+<p>Sync cannot follow symbolic links. File/directory collisions and unsafe destinations stop the operation instead of recursively deleting a directory. If local contents change after preview, refresh the preview.</p>

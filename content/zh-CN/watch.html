@@ -1,13 +1,7 @@
-<h2 id="start">监听文件或目录</h2>
-<pre><code>gitwatch ./notes
-gitwatch -s 2 -r origin -b main ./notes
-gitwatch -f -m "Notes: %d" ./notes
-gitwatch watch ./notes --once</code></pre>
-<p>目标需要位于 Git 仓库中。第二条命令在变化稳定两秒后提交，并推送到 <code>origin</code> 的 <code>main</code> 分支。第三条命令会在启动时提交已有改动，并使用自定义提交消息；<code>%d</code> 会替换为日期和时间。最后一条只执行一次然后退出。</p>
-<h2 id="scope">哪些内容会被提交</h2>
-<p>只提交指定文件或目录内的变化，遵循 Git 忽略规则，并记录删除。如果该路径内已有暂存的改动，gitwatch 会等待你处理；路径之外的暂存内容保持原样。</p>
-<p>没有 <code>-f</code> 时，已有改动会作为初始状态，后续发生变化才触发提交。gitwatch 结合文件系统事件与周期性的内容检查。如果文件通知不可靠，可以使用 <code>--polling</code>。</p>
-<p>其他 Git 操作尚未完成时，gitwatch 会等待。需要你完成或中止该操作后，才能继续自动提交。</p>
-<h2 id="shell">从 shell 版本迁移</h2>
-<div class="table-wrap"><table><thead><tr><th>选项</th><th>行为</th></tr></thead><tbody><tr><td><code>-R</code></td><td>推送前执行拉取并变基，默认关闭。</td></tr><tr><td><code>-x</code></td><td>筛选触发提交的事件，不用于排除提交中的文件。</td></tr><tr><td><code>-c</code></td><td>运行命令生成提交消息。除非显式调用 shell，否则不经过 shell 执行。</td></tr><tr><td><code>-h</code> / <code>-C</code></td><td>这两个选项不接收参数。</td></tr></tbody></table></div>
-<p>完整选项见 <code>gitwatch watch --help</code>。命令失败会返回非零退出码。本项目是独立实现，替换原有 shell 脚本安装时，请核对你依赖的选项。</p>
+<h2 id="create">创建监听任务</h2>
+<ol><li>点击<strong>添加任务</strong>，选择 Git 监听。</li><li>选择已有 Git 仓库中的目录或文件。</li><li>设置用于合并连续变更的等待时间，保存任务。</li><li>点击一次<strong>提交更改</strong>，或启动自动运行。</li></ol>
+<p>gitwatch 会等文件变动暂时平稳后再提交，并遵循 Git 忽略规则。此模式会在源仓库中暂存和提交文件；需要独立历史时，请选择<a href="backup.html">文件备份</a>。</p>
+<h2 id="remote">可选的上传</h2>
+<p>如需推送新提交，填写远端名称，例如 <code>origin</code>，并按需指定分支。远端留空则不上传。请先在 Git 中配置远端和认证。推送不会强制覆盖远端历史。</p>
+<h2 id="boundaries">与 Git 操作配合</h2>
+<p>切换分支、变基或手动处理冲突前，请先暂停任务。提交或推送失败时，在活动记录中查看原因。监听任务不代替通用的合并工具。</p>

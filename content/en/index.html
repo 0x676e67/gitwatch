@@ -1,15 +1,12 @@
-<div class="actions"><a class="button" href="install.html">Install gitwatch →</a><a class="button secondary" href="desktop.html">Explore the desktop app</a></div>
-<figure><a href="../assets/screenshots/tasks-en.jpg"><img src="../assets/screenshots/tasks-en.jpg" alt="gitwatch desktop showing three demonstration tasks and repository information" width="2560" height="1392"></a><figcaption>The desktop app on Windows, using demonstration repositories. Click any screenshot to see it at full size.</figcaption></figure>
-<h2 id="choose">Choose what you want to save</h2>
-<p>gitwatch is a Rust implementation inspired by <a href="https://github.com/gitwatch/gitwatch">gitwatch/gitwatch</a>. It runs on Windows, macOS and Linux. The CLI, terminal UI and desktop app share the same core.</p>
-<div class="cards"><a class="card" href="watch.html"><small>01 / watch</small><strong>Commit as you work</strong><span>Watch a file or directory and commit its changes in the source repository.</span><b aria-hidden="true">→</b></a><a class="card" href="backup.html"><small>02 / workspace</small><strong>Back up selected files</strong><span>Keep notes and project files in a separate Git repository, one branch per workspace.</span><b aria-hidden="true">→</b></a><a class="card" href="pull.html"><small>03 / pull</small><strong>Keep a checkout current</strong><span>Pull from a remote on a schedule, with a strategy you choose.</span><b aria-hidden="true">→</b></a></div>
-<h2 id="quickstart">Your first watch</h2>
-<p>With Git and gitwatch installed, point it at a directory inside an existing Git repository:</p>
-<pre><code>gitwatch ./notes</code></pre>
-<p>Edit a file in that directory. After the changes settle, gitwatch creates a commit. Press <kbd>Ctrl+C</kbd> to stop. Existing changes are the starting baseline; add <code>-f</code> if you want to commit those at startup too.</p>
-<div class="callout">Watch mode writes commits into your source repository. Choose <a href="backup.html">workspace backups</a> if you want to keep the source project's Git history untouched.</div>
-<h2 id="interfaces">Use the interface that suits you</h2>
-<pre><code>gitwatch --help
-gitwatch tui
-gitwatch desktop</code></pre>
-<p>The interactive interfaces need their corresponding build features. They save tasks in the same local store and remember which tasks you started. Only one interactive interface can use a store at a time.</p>
+<h2 id="choose">What do you want to do?</h2>
+<table><thead><tr><th>Goal</th><th>Choose</th></tr></thead><tbody>
+<tr><td>Save selected files without adding commits to my project</td><td><a href="backup.html">File backup</a></td></tr>
+<tr><td>Keep those files up to date on two computers</td><td><a href="sync.html">Two-way sync</a> on a backup task</td></tr>
+<tr><td>Commit changes directly in my project repository</td><td><a href="watch.html">Git watch</a></td></tr>
+<tr><td>Download commits into a normal checkout on a schedule</td><td><a href="pull.html">Scheduled pull</a></td></tr>
+</tbody></table>
+<h2 id="start">Start with one task</h2>
+<ol><li><a href="install.html">Install Git and gitwatch</a>, then open <code>gitwatch</code>.</li><li>Choose <strong>Add task</strong>, select a task type, and pick your local directory.</li><li>Save the task and use its one-time action to check the result. Choose <strong>Start automatic runs</strong> when ready.</li></ol>
+<p>To use a backup from another computer, start with <a href="backup.html#restore">Restore remote backup</a>. Creating a task alone does not download its files.</p>
+<h2 id="desktop">A desktop application</h2>
+<p>gitwatch runs on Windows, macOS and Linux, in English and Simplified Chinese. Started tasks can continue in the tray while you work.</p>

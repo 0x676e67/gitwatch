@@ -1,30 +1,14 @@
-<h2 id="add">Add your first task</h2>
-<pre><code>gitwatch desktop</code></pre>
-<ol><li>Click <strong>Add task</strong> and use the <strong>Task type</strong> dropdown to choose <strong>Workspace backup</strong>, <strong>Git watch</strong> or <strong>Scheduled pull</strong>.</li><li>Give it a name and select the source directory. Set the options for that mode.</li><li>Save the task. It appears in the list, stopped.</li><li>Select it and click <strong>Run once</strong> to try it, or <strong>Start</strong> to keep it running.</li></ol>
-<figure><a href="../assets/screenshots/pull-en.jpg"><img src="../assets/screenshots/pull-en.jpg" alt="Scheduled pull task form with the pull strategy selector open" width="2560" height="1392" loading="lazy"></a><figcaption>Choose a strategy when adding or editing a scheduled pull.</figcaption></figure>
-<h2 id="controls">Manage running tasks</h2>
-<p>Stop a running task before editing or removing it.</p>
-<p>The task list remains visible while you add tasks or open settings. Select any task to return to its details. Drag the six-dot handle to reorder tasks; the order is saved. Drag near the list's edge to scroll, or press <kbd>Escape</kbd> to cancel the drag.</p>
-<div class="table-wrap"><table><thead><tr><th>Control</th><th>What it does</th></tr></thead><tbody><tr><td>Start / Stop</td><td>Enable or stop the task's worker. Started tasks resume the next time you open the desktop app or TUI.</td></tr><tr><td>Run once</td><td>Run a stopped task once, or request an immediate run from a started task. It does not change its startup state.</td></tr><tr><td>Refresh</td><td>Reload tasks and request fresh repository information.</td></tr><tr><td>Activity</td><td>Read operation results and errors. Check here when an update fails.</td></tr></tbody></table></div>
-<p>If an operation is already in progress, a requested run waits until it finishes. Repeated pending requests are combined. A manual pull starts a new countdown when it finishes.</p>
-<h2 id="workspaces">Keep separate task lists</h2>
-<div class="callout">Multi-workspace support is part of the next release. v0.2.0 has a single task list.</div>
-<p>The <strong>Default workspace</strong> is ready to use when you first open the app. Tasks and backup history from v0.2.0 stay there, with their startup settings and pull schedules intact.</p>
-<ol><li>Click <strong>New workspace</strong>.</li><li>Enter a name and the URL of a dedicated backup repository. A remote is required for every custom workspace. Repository URLs are shown as plain text so you can check and edit them; Git authentication controls access.</li><li>Save, then choose the new workspace from the menu before adding tasks.</li></ol>
-<p>Each workspace has its own task list and backup history. A <strong>Workspace backup</strong> is still a task type: you can add backup, watch and pull tasks to any workspace. The workspace's backup remote is separate from the remote used by a watch or pull task.</p>
-<p>Switching only changes the list you see. Started tasks in other workspaces continue running, and they all resume when you reopen the app. The selected workspace and saved pull deadlines are remembered too.</p>
-<p>The default workspace is local: its backup remote cannot be changed in the interface. An existing remote from an older version is preserved. For a custom workspace, use <strong>Backup settings</strong> to change its remote, choose automatic upload, or fetch and import backup branches.</p>
-<p><strong>Rename workspace</strong> changes the name without moving data. <strong>Remove workspace</strong> is available only when the current workspace has no tasks; its backup data stays on disk. The default workspace cannot be renamed or removed.</p>
-<h2 id="layout">Adjust the layout</h2>
-<p>Drag the divider beside the task list to change its width. Drag the top edge of <strong>Activity</strong> upward to make more room for logs, or click its heading to collapse it.</p>
-<p>Logs wrap to fit the panel and can be selected and copied. <strong>Copy logs</strong> copies the current workspace's displayed log; <strong>Clear logs</strong> clears this view without removing tasks or backup history. Turn off <strong>Follow latest</strong> while reading earlier entries. The view keeps up to 200 entries.</p>
-<p>The default workspace is local, so it does not show backup remote settings. Select a custom workspace to configure its remote. When adding a task, choose its mode from the <strong>Task type</strong> dropdown. If saving fails, your input stays in the form so you can correct it and try again.</p>
-<h2 id="history">Browse and restore backups</h2>
-<p>Select a workspace backup to open its history. Select a revision, preview the files, then review their contents before confirming a restore. Previewing alone does not write to the source directory. See <a href="backup.html#restore">the restore workflow</a> for recovery files and preview expiry.</p>
-<h2 id="repository">Read repository information</h2>
-<p>The detail panel shows the repository link, branch, latest commit, commit and contributor counts, tags and tracked files. Click the repository link to open it in your browser.</p>
-<p>Counts come from local Git at <code>HEAD</code>, including merge commits. A shallow clone may have incomplete history. Text line counts include comments and blank lines; file types are grouped by extension, not by a language parser. Binary files are counted separately.</p>
-<p>Information refreshes in the background while the details are open. Use <strong>Refresh information</strong> to request it immediately. Gathering these statistics does not make network requests. Commit dates are displayed in local time.</p>
-<h2 id="tray">Keep tasks running in the tray</h2>
-<p>Closing or minimizing the window keeps tasks running in the tray. Click the tray icon to reopen the window. Right-click the icon and choose <strong>Quit</strong> to stop tasks and exit.</p>
-<p>Under <strong>Settings</strong>, enable <strong>Start minimized to tray</strong> to hide the window on later launches. This is off by default. Tasks you started resume either way. No system service is installed; gitwatch needs to be running for tasks to run.</p>
+<h2 id="workspaces">Workspaces</h2>
+<p>A default workspace is created automatically. It keeps existing tasks and stores backups locally, with no backup remote. For remote backups, create a workspace and supply its dedicated Git repository URL.</p>
+<p>The workspace selector changes the task list you see. Tasks already running elsewhere continue in the background. Each workspace has its own tasks, order and backup history. Language and tray preferences apply to the whole app.</p>
+<h2 id="tasks">Create and run tasks</h2>
+<ol><li>Choose <strong>Add task</strong> and select file backup, Git watch or scheduled pull.</li><li>Enter a name, select the local directory, complete that task's options, and save.</li><li>Select the task from the list to see its state, actions and repository information.</li></ol>
+<p>One-time actions are named for what they do: back up files, commit changes, pull now or sync now. They work whether automatic runs are started or paused. Started tasks and scheduled deadlines are remembered across app restarts.</p>
+<p>Pause automatic runs before editing a task. Names must be unique within a workspace, including names that differ only by case. Drag a task card's handle to reorder it.</p>
+<h2 id="restore">Restore existing files</h2>
+<p>Choose <strong>Restore remote backup</strong> to bring a backup from another computer. The wizard loads backup branches, asks for the destination, then shows a file preview. Files are written only after <strong>Confirm restore</strong>. See the <a href="backup.html#restore">restore walkthrough</a>.</p>
+<h2 id="status">Progress and activity</h2>
+<p>Task cards show their state. Scheduled pulls and sync tasks show the next check countdown. The activity panel records task names, results and errors, with copy and clear controls. Repository links open in your browser.</p>
+<p>A local backup does not necessarily mean it has been uploaded; check the upload result too. Regular backups do not automatically download remote files. Enable <a href="sync.html">two-way sync</a> for that behavior.</p>
+<h2 id="tray">Tray and exit</h2>
+<p>When the tray is available, closing the window hides it while tasks continue. Use the tray menu to show the window or choose <strong>Quit</strong> to stop tasks and exit. App settings can also start the window hidden in the tray.</p>

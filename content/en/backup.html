@@ -1,43 +1,22 @@
 <h2 id="select">Select the files to save</h2>
-<p>Workspace backups copy selected files to a dedicated bare Git repository. Each workspace has its own branch. Your source directory does not need to be a Git repository, and gitwatch does not stage or commit anything in it.</p>
-<pre><code>gitwatch workspace add ./project-a --name project-a --include notes.md --include notes
-gitwatch workspace add ./project-b --name project-b --include notes.md --include notes
-gitwatch workspace list
-gitwatch workspace backup project-a
-gitwatch workspace watch --all</code></pre>
-<p>Replace these paths and selections with your own. Adding a workspace saves its settings; the <code>backup</code> command makes a single backup, while <code>watch --all</code> keeps watching registered workspaces.</p>
-<h2 id="storage">Branches and file boundaries</h2>
-<p>Each backup task has a stable internal UUID. New tasks use their name as the backup branch, with whitespace replaced by hyphens: <code>Quic notes</code> becomes <code>Quic-notes</code>. You can set a branch explicitly if the name is not valid in Git. A backup contains <code>manifest.json</code> and <code>files/&lt;project-relative-path&gt;</code>. Absolute source paths stay in local configuration, so another machine can bind the same backup to a different directory.</p>
-<p>You can select files ignored by the source project's Git rules. Git metadata and known credential or cache paths are still excluded. Symbolic links are rejected unless you enable the task option below. Other Windows reparse points remain unsupported. A scan is limited to 16 MiB per file, 128 MiB of content and 10,000 files.</p>
-<div class="callout">If a selected file disappears, its last backup is retained and reported. A missing source directory produces an error instead of a new backup. Workspace backups therefore do not mirror source deletions in the same way as watch mode.</div>
-<h2 id="links">Back up symbolic-link targets</h2>
-<div class="callout">This option is part of the next release. v0.2.0 rejects symbolic links.</div>
-<p>For a backup task, enable <strong>Follow symbolic links</strong> in the desktop form, or use Left/Right on that field in the TUI. This saves the target's actual files under the link's project-relative path, even when the target is outside the project. It does not save the link itself. The source root must still be an ordinary directory.</p>
-<pre><code>gitwatch workspace add ./project --name agents --include .agents --follow-links
-gitwatch workspace edit agents --follow-links true
-gitwatch workspace edit agents --follow-links false</code></pre>
-<p>The option is off by default and stays local to this task; importing a backup does not enable it. Exclusion patterns use the paths visible in your project. Periodic content checks detect changes in external targets. Missing link targets are skipped, and their previously saved files stay in the backup. Cycles, unreadable targets and links into backup storage produce an error without replacing the last backup; credential and cache exclusions still apply.</p>
-<p>Restore previews continue to reject linked destinations. To recover these files without writing through a link, bind the backup to another ordinary directory and preview the restore there. The restored files and directories are ordinary copies.</p>
-<h2 id="remote">Use a remote backup repository</h2>
-<p>Upload creates the first snapshot automatically when this task has no backup yet. If a snapshot already exists, Upload sends that saved history without rescanning the source. Use <strong>Run once</strong> to capture current changes. Failed uploads keep the local snapshot for retry. With automatic uploads enabled, a successful backup also pushes the branch.</p>
-<pre><code>gitwatch workspace remote https://github.com/you/private-backup.git --auto-push
-gitwatch workspace fetch</code></pre>
-<p>Use a repository appropriate for the contents you are backing up. Leave out the remote configuration for local-only backups. Fetch retrieves history without restoring files. Push never uses force; if histories diverge, your local backup remains intact and you must reconcile the histories yourself.</p>
-<h2 id="names">Task names and branch changes</h2>
-<p>Task names are unique within each application workspace, across backup, watch and pull tasks. Names keep their spelling, but comparisons ignore letter case and surrounding whitespace: <code>quic</code> and <code> Quic </code> cannot be two tasks. Separate application workspaces may use the same names.</p>
-<p>Renaming a backup task also renames its local and configured remote branch, keeping earlier commits. Whitespace becomes hyphens; a resulting branch collision is rejected. Remote renames require connectivity and permission to create the new branch and delete the old one. Protected branches and the remote default branch may need changes in repository settings. A conflict leaves the original binding intact. For a change only in letter case, rename through a distinct intermediate name.</p>
-<p>Existing <code>workspaces/&lt;uuid&gt;</code> bindings keep working. To migrate one without changing the task name, edit its Branch field or run:</p>
-<pre><code>gitwatch workspace edit quic --branch quic</code></pre>
-<h2 id="restore">Preview, then restore</h2>
-<p>On another machine, configure the remote and fetch its branches, then bind a workspace to a local directory:</p>
-<pre><code>gitwatch workspace remote https://github.com/you/private-backup.git
-gitwatch workspace fetch
-gitwatch workspace import agents ./local-project
-gitwatch workspace history &lt;uuid&gt;
-gitwatch workspace restore &lt;uuid&gt; --preview
-gitwatch workspace restore &lt;uuid&gt; --plan &lt;preview-uuid&gt; --show notes.md
-gitwatch workspace restore &lt;uuid&gt; --plan &lt;preview-uuid&gt; --confirm</code></pre>
-<p>Replace <code>&lt;uuid&gt;</code> with the workspace UUID and <code>&lt;preview-uuid&gt;</code> with the preview ID returned by the command. Angle brackets mark placeholders; do not type them literally. Import leaves the workspace paused so you can inspect and restore before starting a watcher.</p>
-<ol><li>Create a preview and review the files that would change.</li><li>Inspect file contents using <code>--show</code>, or use the desktop preview.</li><li>Confirm that exact preview when you are ready to write files.</li></ol>
-<p>A preview expires after 24 hours. If destination contents change, create a new preview. Before replacing files, gitwatch saves their previous contents under <code>recovery/&lt;preview-uuid&gt;/files/</code> in the local store. Extra destination files are left alone.</p>
-<p>If a restore stops partway through, its report identifies the files written and the recovery copies. Keep the report and recovery directory until you have checked the result.</p>
+<p>Add a file backup task and choose its source directory. Enter project-relative files or directories in the include list, one per line. For example:</p>
+<pre><code>AGENTS.md
+.agents</code></pre>
+<p>Include entries are paths. Exclusions are glob patterns, also one per line, with forward slashes. To omit a whole directory, enter <code>.agents/upstream</code>. To omit Markdown files anywhere, enter <code>**/*.md</code>. Exclusions take precedence.</p>
+<p>The source need not be a Git repository. Ordinary backups read its files and commit copies to separate storage. They do not stage, commit or push the source repository.</p>
+<h2 id="storage">History and file boundaries</h2>
+<p>Each backup task has its own branch in the workspace's backup repository. Snapshots contain a manifest and the selected files. Absolute source paths stay local, so another computer can use a different directory.</p>
+<p>Files ignored by the source project's Git rules can be selected, but Git metadata and built-in credential/cache exclusions still apply. Limits are 16 MiB per file, 128 MiB per scan and 10,000 files.</p>
+<p>Ordinary backups retain previously saved files when those files disappear from the source. Changing include or exclude rules removes files outside the new selection from the latest snapshot, while preserving Git history. <a href="sync.html">Two-way sync</a> also propagates deletions of selected files.</p>
+<h2 id="links">Symbolic links</h2>
+<p><strong>Follow symbolic links</strong> is off by default. Enabling it backs up the target's actual files under the link's relative path, including targets outside the project. Missing targets are skipped; cycles and unreadable targets cause an error. Restore destinations must be ordinary paths, and two-way sync cannot follow links.</p>
+<h2 id="remote">Upload backups</h2>
+<p>Create a workspace with a dedicated remote repository, then configure automatic uploads in its workspace settings. Credentials come from Git. Upload failures leave local snapshots available for retry.</p>
+<p><strong>Upload</strong> sends the saved snapshot. It creates one first if none exists; otherwise use the backup action to capture new local changes before uploading. Pushes are never forced. To integrate changes from other computers, use two-way sync. Upload does not download files.</p>
+<h2 id="names">Names and branches</h2>
+<p>Task names are unique within a workspace, ignoring case and surrounding whitespace. A new backup branch uses the task name with whitespace replaced by hyphens. Renaming also renames the configured local and remote branch, preserving history. Branch protection or a collision can prevent a rename.</p>
+<h2 id="restore">Restore on another computer</h2>
+<ol><li>Create a workspace with the same backup repository URL.</li><li>Choose <strong>Restore remote backup</strong>. Wait for the list, select a branch and choose the local destination.</li><li>Continue to the preview and review the files and destination. A new task is created paused.</li><li>Check the confirmation box and choose <strong>Confirm restore</strong>. Wait for completion before checking the destination.</li></ol>
+<p>Loading the list or creating a task does not write source files. For an existing task, use its restore action; use History to restore a saved version. Extra destination files are left alone. Linked destinations are rejected.</p>
+<p>Previews expire after 24 hours and must be refreshed if destination contents change. Recovery copies are kept in the data directory before overwriting files. If restoration stops partway through, keep those copies and inspect the activity report.</p>
+<p>The restored task stays paused. Start regular backups to upload local changes, or <a href="sync.html">enable two-way sync</a> to keep both computers updated.</p>

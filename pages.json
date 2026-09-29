@@ -1,11 +1,110 @@
 [
-  {"slug":"index","group":0,"en":{"title":"Keep a history of your work.","description":"Watch files, save selected workspace files, or keep a checkout up to date. Choose the command line, terminal UI, or desktop app."},"zh-CN":{"title":"为你的工作保留历史记录。","description":"监听文件变化、备份工作空间中的指定文件，或定时拉取仓库更新。你可以使用命令行、终端界面或桌面应用。"}},
-  {"slug":"install","group":0,"en":{"title":"Installation","description":"Install Git, then choose the gitwatch interfaces you need."},"zh-CN":{"title":"安装","description":"先安装 Git，再选择你需要的 gitwatch 界面。"}},
-  {"slug":"desktop","group":0,"en":{"title":"Desktop app","description":"Manage your tasks, check their progress, and browse backup history in one window."},"zh-CN":{"title":"桌面应用","description":"在同一个窗口中管理任务、查看运行情况和浏览备份历史。"}},
-  {"slug":"watch","group":1,"en":{"title":"Watch a Git repository","description":"Commit changes in the repository you are working in, with an optional push to a remote."},"zh-CN":{"title":"监听 Git 仓库","description":"在当前项目仓库中提交文件变化，也可以将提交推送到远程。"}},
-  {"slug":"backup","group":1,"en":{"title":"Workspace backups","description":"Save selected files in a separate backup repository without adding commits to your source projects."},"zh-CN":{"title":"工作空间备份","description":"把选中的文件保存到独立备份仓库，不在源项目中添加提交。"}},
-  {"slug":"pull","group":1,"en":{"title":"Scheduled pulls","description":"Keep a local checkout up to date and choose how Git handles divergent history."},"zh-CN":{"title":"定时拉取","description":"定期更新本地仓库，并选择 Git 如何处理分叉的提交历史。"}},
-  {"slug":"tui","group":2,"en":{"title":"Terminal UI","description":"Manage the same tasks from your terminal, using the keyboard."},"zh-CN":{"title":"终端界面","description":"在终端中使用键盘管理相同的任务。"}},
-  {"slug":"settings","group":2,"en":{"title":"Language, data & updates","description":"Choose a language, locate your data, and update or uninstall gitwatch."},"zh-CN":{"title":"语言、数据与更新","description":"选择界面语言、了解数据存放位置，以及更新或卸载 gitwatch。"}},
-  {"slug":"development","group":2,"en":{"title":"Building & contributing","description":"Build locally, run the checks, and learn how releases are published."},"zh-CN":{"title":"构建与参与开发","description":"本地构建、运行检查，以及了解版本发布流程。"}}
+  {
+    "slug": "index",
+    "group": 0,
+    "en": {
+      "title": "Keep a history of your work.",
+      "description": "Watch repositories, back up files, and share them between computers from one desktop app."
+    },
+    "zh-CN": {
+      "title": "为你的工作保留历史记录。",
+      "description": "在桌面应用中监听仓库、备份文件，或在多台电脑之间同步。"
+    }
+  },
+  {
+    "slug": "install",
+    "group": 0,
+    "en": {
+      "title": "Installation",
+      "description": "Install Git, then open gitwatch."
+    },
+    "zh-CN": {
+      "title": "安装",
+      "description": "先安装 Git，再打开 gitwatch。"
+    }
+  },
+  {
+    "slug": "desktop",
+    "group": 0,
+    "en": {
+      "title": "Desktop app",
+      "description": "Manage tasks and keep separate lists for each workspace."
+    },
+    "zh-CN": {
+      "title": "桌面应用",
+      "description": "管理任务，并用工作空间分别保存任务列表。"
+    }
+  },
+  {
+    "slug": "watch",
+    "group": 1,
+    "en": {
+      "title": "Watch a Git repository",
+      "description": "Commit file changes directly in your project repository."
+    },
+    "zh-CN": {
+      "title": "监听 Git 仓库",
+      "description": "直接在项目仓库中提交文件变化。"
+    }
+  },
+  {
+    "slug": "backup",
+    "group": 1,
+    "en": {
+      "title": "File backups & restore",
+      "description": "Save selected files in a separate repository and restore them when needed."
+    },
+    "zh-CN": {
+      "title": "文件备份与恢复",
+      "description": "把指定文件保存在独立仓库中，需要时再恢复。"
+    }
+  },
+  {
+    "slug": "sync",
+    "group": 1,
+    "en": {
+      "title": "Two-way sync",
+      "description": "Exchange selected backup files using Git history and explicit conflict handling."
+    },
+    "zh-CN": {
+      "title": "双向同步",
+      "description": "通过 Git 历史同步选中的备份文件，并明确处理冲突。"
+    }
+  },
+  {
+    "slug": "pull",
+    "group": 1,
+    "en": {
+      "title": "Scheduled pulls",
+      "description": "Download remote commits into a normal Git checkout on a schedule."
+    },
+    "zh-CN": {
+      "title": "定时拉取",
+      "description": "定时将远端提交下载到普通 Git 仓库。"
+    }
+  },
+  {
+    "slug": "settings",
+    "group": 2,
+    "en": {
+      "title": "Language, data & updates",
+      "description": "Manage preferences and installations while keeping your backup history."
+    },
+    "zh-CN": {
+      "title": "语言、数据与更新",
+      "description": "管理偏好与安装，保留备份历史。"
+    }
+  },
+  {
+    "slug": "development",
+    "group": 2,
+    "en": {
+      "title": "Building & contributing",
+      "description": "Build the desktop app and run the same checks as CI."
+    },
+    "zh-CN": {
+      "title": "构建与参与开发",
+      "description": "构建桌面应用，运行与 CI 相同的检查。"
+    }
+  }
 ]
