@@ -18,7 +18,7 @@ cargo install gitwatch --locked
 gitwatch
 ```
 
-See the [installation guide](https://gitwatch.dpdns.org/en/install.html) for Linux dependencies and source builds. Upgrading from 0.3.x? [Reinstall with Cargo or download a fresh archive](https://gitwatch.dpdns.org/en/upgrade.html); the old updater cannot install the new single-program package. CLI and TUI interfaces have been removed.
+See the [installation guide](https://gitwatch.dpdns.org/en/install.html) for Linux dependencies and source builds.
 
 ## Get started
 
