@@ -2,6 +2,7 @@
 
 mod history;
 mod icons;
+mod installation;
 mod overview;
 mod repository;
 mod restore;
@@ -42,6 +43,7 @@ fn pull_countdown(next: Option<std::time::Instant>, language: Language) -> Strin
 }
 
 struct Desktop {
+    installation: installation::Panel,
     model: Model,
     spaces: Sessions,
     space_form: Option<bool>,
@@ -78,6 +80,29 @@ pub fn run(data: Option<PathBuf>) -> Result<()> {
 
 /// Opens the desktop with an explicit initial language.
 pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()> {
+    if crate::update::Installation::needs_recovery()? {
+        let confirmed = rfd::MessageDialog::new()
+            .set_title("gitwatch")
+            .set_description(
+                language
+                    .text("An interrupted update was found. Restore the previous installation?"),
+            )
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .show()
+            == rfd::MessageDialogResult::Yes;
+        if !confirmed {
+            return Ok(());
+        }
+        crate::update::Installation::recover()?;
+        rfd::MessageDialog::new()
+            .set_title("gitwatch")
+            .set_description(
+                language.text("Installation restored. Open gitwatch again to continue."),
+            )
+            .show();
+        return Ok(());
+    }
+    let running = crate::update::Running::acquire()?;
     let directory = data
         .clone()
         .map_or_else(crate::workspace::BackupStore::default_directory, Ok)?;
@@ -109,6 +134,7 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
             };
             let hide_on_start = start_in_tray && tray.is_some();
             Ok(Box::new(Desktop {
+                installation: installation::Panel::new(Some(running)),
                 model,
                 spaces,
                 space_form: None,
@@ -146,6 +172,18 @@ impl eframe::App for Desktop {
         if let Some(tray) = &mut self.tray {
             tray.poll(context);
             tray.set_language(self.model.language);
+        }
+        self.installation
+            .poll(self.spaces.shutdown_finished(&self.model));
+        if self.installation.stopping() {
+            self.spaces.request_shutdown(&self.model);
+            if self.installation.exiting() {
+                context.send_viewport_cmd(egui::ViewportCommand::Close);
+            } else {
+                context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                context.request_repaint_after(Duration::from_millis(100));
+            }
+            return;
         }
         let requested = self.tray.as_ref().is_some_and(|tray| tray.quitting())
             || (self.tray.is_none() && context.input(|input| input.viewport().close_requested()));
@@ -563,6 +601,10 @@ impl Desktop {
 
     fn paint(&mut self, ui: &mut egui::Ui) {
         let language = self.model.language;
+        if self.installation.stopping() {
+            self.installation.show(ui.ctx(), language);
+            return;
+        }
         if self.closing {
             ui.vertical_centered(|ui| {
                 ui.add_space(32.0);
@@ -664,10 +706,9 @@ impl Desktop {
                                     language
                                         .format("gitwatch {0} is available.", &[release.version()]),
                                 );
-                                ui.monospace("gitwatch self update")
-                                    .on_hover_text(language.text(
-                                    "Choose Quit in the tray menu, then update from a terminal:",
-                                ));
+                                if ui.button(language.text("Manage installation")).clicked() {
+                                    self.installation.open();
+                                }
                                 ui.hyperlink_to(language.text("Release notes"), release.url());
                             });
                         });
@@ -788,6 +829,10 @@ impl Desktop {
                 ui.label(language.text(
                     "Applies the next time you open gitwatch. Started tasks resume automatically.",
                 ));
+                ui.separator();
+                if ui.button(language.text("Manage installation")).clicked() {
+                    self.installation.open();
+                }
                 ui.label(language.text("Closing the window keeps tasks running in the tray."));
                 ui.label(language.text(
                     "Click the tray icon to show the window. Choose Quit in its menu to exit.",
@@ -800,6 +845,7 @@ impl Desktop {
                     tray::hide(ui.ctx());
                 }
             });
+        self.installation.show(ui.ctx(), language);
     }
 }
 
@@ -1476,6 +1522,7 @@ mod tests {
         let (spaces, model) =
             Sessions::new(Some(directory.join("data")), Language::English).unwrap();
         Desktop {
+            installation: installation::Panel::new(None),
             model,
             spaces,
             space_form: None,

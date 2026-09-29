@@ -403,13 +403,11 @@ impl Sessions {
             self.global_pending = false;
         }
         let update = root.update.clone();
-        #[cfg(feature = "desktop")]
         let start_in_tray = root.start_in_tray;
         for target in std::iter::once(model).chain(self.inactive.iter_mut().map(|(_, model)| model))
         {
             target.language = language;
             target.update.clone_from(&update);
-            #[cfg(feature = "desktop")]
             {
                 target.start_in_tray = start_in_tray;
             }
@@ -832,7 +830,7 @@ mod tests {
         wait(&mut sessions, &mut model);
         let source = temp.path().join("external-source");
         fs::create_dir(&source).unwrap();
-        let binding = crate::workspace::Workspace::builder("Added through CLI", &source)
+        let binding = crate::workspace::Workspace::builder("Added by another process", &source)
             .include("note")
             .build()
             .unwrap();

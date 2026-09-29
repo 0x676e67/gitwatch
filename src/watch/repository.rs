@@ -3,13 +3,10 @@ use std::{
     fs,
     io::{ErrorKind, Read},
     path::{Path, PathBuf},
-    process::Command,
     time::Duration,
 };
 
 use anyhow::{Context, ensure};
-use chrono::format::{Item, StrftimeItems};
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -20,18 +17,10 @@ use crate::{
 };
 
 /// Commit and remote settings for an existing repository.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct WatchOptions {
-    message: String,
-    date_format: String,
     remote: Option<String>,
     branch: Option<String>,
-    pull_rebase: bool,
-    exclude: Option<String>,
-    message_command: Option<String>,
-    pass_files: bool,
-    diff_lines: Option<usize>,
-    color_diff: bool,
 }
 
 /// A direct-watch result. Upload failures do not invalidate a successful local commit.
@@ -57,16 +46,6 @@ pub struct Repository {
 // ===== impl WatchOptions =====
 
 impl WatchOptions {
-    /// Sets a commit message template. Every `%d` is replaced with the formatted time.
-    pub fn message(mut self, message: impl Into<String>) -> Self {
-        self.message = message.into();
-        self
-    }
-    /// Sets a strftime date format; a leading `+` is accepted for script compatibility.
-    pub fn date_format(mut self, format: impl Into<String>) -> Self {
-        self.date_format = format.into();
-        self
-    }
     /// Enables pushes to a remote name, path or URL.
     pub fn remote(mut self, remote: impl Into<String>) -> Self {
         self.remote = Some(remote.into());
@@ -76,51 +55,6 @@ impl WatchOptions {
     pub fn branch(mut self, branch: impl Into<String>) -> Self {
         self.branch = Some(branch.into());
         self
-    }
-    /// Enables an explicit pull/rebase before push.
-    pub fn pull_rebase(mut self, enabled: bool) -> Self {
-        self.pull_rebase = enabled;
-        self
-    }
-    /// Excludes matching paths from change detection, not from the commit scope.
-    pub fn exclude(mut self, pattern: impl Into<String>) -> Self {
-        self.exclude = Some(pattern.into());
-        self
-    }
-    /// Runs a program to generate commit messages; arguments use shell-style quoting.
-    /// Shell operators are not evaluated. `pass_files` sends scoped file names to stdin.
-    pub fn message_command(mut self, command: impl Into<String>, pass_files: bool) -> Self {
-        self.message_command = Some(command.into());
-        self.pass_files = pass_files;
-        self
-    }
-    /// Uses scoped diff content as the commit message, or statistics over the limit.
-    /// A limit of zero is unlimited; color only affects the generated diff message.
-    pub fn diff_message(mut self, lines: usize, color: bool) -> Self {
-        self.diff_lines = Some(lines);
-        self.color_diff = color;
-        self
-    }
-    /// Returns an optional event-exclusion expression.
-    pub fn exclusion(&self) -> Option<&str> {
-        self.exclude.as_deref()
-    }
-}
-
-impl Default for WatchOptions {
-    fn default() -> Self {
-        Self {
-            message: "Scripted auto-commit on change (%d) by gitwatch".into(),
-            date_format: "+%Y-%m-%d %H:%M:%S".into(),
-            remote: None,
-            branch: None,
-            pull_rebase: false,
-            exclude: None,
-            message_command: None,
-            pass_files: false,
-            diff_lines: None,
-            color_diff: false,
-        }
     }
 }
 
@@ -220,26 +154,9 @@ impl Repository {
             git.run(["check-ref-format", "--branch", branch])?;
         }
         ensure!(
-            !options.pull_rebase || options.remote.is_some(),
-            "pull/rebase requires a remote"
-        );
-        ensure!(
             options.branch.is_none() || options.remote.is_some(),
             "A destination branch requires a remote"
         );
-        ensure!(
-            !StrftimeItems::new(
-                options
-                    .date_format
-                    .strip_prefix('+')
-                    .unwrap_or(&options.date_format)
-            )
-            .any(|item| matches!(item, Item::Error)),
-            "Unsupported date format"
-        );
-        if let Some(pattern) = &options.exclude {
-            Regex::new(pattern).context("Invalid event exclusion regex")?;
-        }
         Ok(Self {
             git,
             root,
@@ -259,10 +176,6 @@ impl Repository {
     /// Returns the containing Git worktree.
     pub fn root(&self) -> &Path {
         &self.root
-    }
-    /// Returns the event-filter settings.
-    pub fn options(&self) -> &WatchOptions {
-        &self.options
     }
 
     /// Commits the selected scope, preserving unrelated staged files.
@@ -316,7 +229,10 @@ impl Repository {
                 skipped: None,
             });
         }
-        let message = self.message()?;
+        let message = format!(
+            "Scripted auto-commit on change ({}) by gitwatch",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+        );
         ensure!(
             !message.trim().is_empty(),
             "Commit message is empty; staged changes were preserved"
@@ -353,7 +269,6 @@ impl Repository {
     }
 
     /// Hashes selected contents to reconcile missed events without relying on mtimes.
-    /// Event exclusions apply to detection; a subsequent commit still uses the full scope.
     pub fn fingerprint(&self) -> Result<String> {
         self.check_identity()?;
         ensure!(self.root.is_dir(), "Worktree is unavailable");
@@ -364,20 +279,8 @@ impl Repository {
             "--exclude-standard",
             "-z",
         ]))?;
-        let exclude = self
-            .options
-            .exclude
-            .as_deref()
-            .map(Regex::new)
-            .transpose()?;
         let mut hash = Sha256::new();
         for relative in paths.split(|b| *b == 0).filter(|p| !p.is_empty()) {
-            if exclude
-                .as_ref()
-                .is_some_and(|r| r.is_match(&String::from_utf8_lossy(relative)))
-            {
-                continue;
-            }
             hash.update((relative.len() as u64).to_le_bytes());
             hash.update(relative);
             let path = self.root.join(os_path(relative)?);
@@ -444,62 +347,6 @@ impl Repository {
             .map(|marker| format!("Repository operation in progress: {marker}")))
     }
 
-    fn message(&self) -> Result<String> {
-        let date = self
-            .options
-            .date_format
-            .strip_prefix('+')
-            .unwrap_or(&self.options.date_format);
-        let mut message = self
-            .options
-            .message
-            .replace("%d", &chrono::Local::now().format(date).to_string());
-        if let Some(limit) = self.options.diff_lines {
-            let color = if self.options.color_diff {
-                "--color=always"
-            } else {
-                "--color=never"
-            };
-            let diff = self.git.text(self.scoped(&[
-                "diff",
-                "--cached",
-                "--no-ext-diff",
-                "--no-textconv",
-                "-U0",
-                color,
-            ]))?;
-            message = if limit == 0 || diff.lines().count() <= limit {
-                diff
-            } else {
-                self.git
-                    .text(self.scoped(&["diff", "--cached", "--stat", "--no-ext-diff"]))?
-            };
-        }
-        if let Some(expression) = &self.options.message_command {
-            let words = shlex::split(expression).context("Unclosed quote in message command")?;
-            let program = words.first().context("Message command is empty")?;
-            let mut command = Command::new(program);
-            command.args(&words[1..]).current_dir(&self.root);
-            let names = if self.options.pass_files {
-                Some(
-                    self.git
-                        .run(self.scoped(&["diff", "--cached", "--name-only"]))?,
-                )
-            } else {
-                None
-            };
-            let output = git::execute(command, names.as_deref(), Duration::from_secs(30))?;
-            ensure!(
-                output.code == 0,
-                "Message command failed (exit {}); staged changes preserved",
-                output.code
-            );
-            message =
-                String::from_utf8(output.stdout).context("Message command must emit UTF-8")?;
-        }
-        Ok(message)
-    }
-
     fn upload(&mut self) -> UploadState {
         let Some(remote) = &self.options.remote else {
             return UploadState::Disabled;
@@ -508,13 +355,6 @@ impl Repository {
             return UploadState::Synced;
         }
         let result = (|| -> Result<()> {
-            if self.options.pull_rebase {
-                let mut args = vec!["pull", "--rebase", remote];
-                if let Some(branch) = &self.options.branch {
-                    args.push(branch);
-                }
-                self.git.run(args)?;
-            }
             let destination = self
                 .options
                 .branch

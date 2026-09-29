@@ -39,38 +39,19 @@ fn notifications_use_cached_versions_without_network_or_git() {
 }
 
 #[test]
-fn self_help_and_uninstall_confirmation_are_localized() {
+fn version_probe_does_not_open_git_or_initialize_user_data() {
     let temp = tempfile::tempdir().unwrap();
-    for language in ["en", "zh-CN"] {
-        let output = Command::new(env!("CARGO_BIN_EXE_gitwatch"))
-            .args(["--lang", language, "self", "--help"])
-            .output()
-            .unwrap();
-        assert!(output.status.success());
-        let help = String::from_utf8(output.stdout).unwrap();
-        assert!(help.contains("update") && help.contains("uninstall"));
-        assert!(help.contains(if language == "en" {
-            "Update or uninstall"
-        } else {
-            "更新或卸载"
-        }));
-    }
-    let cli = temp.path().join(if cfg!(windows) {
-        "gitwatch.exe"
-    } else {
-        "gitwatch"
-    });
-    fs::copy(env!("CARGO_BIN_EXE_gitwatch"), &cli).unwrap();
     let data = temp.path().join("data");
-    fs::create_dir(&data).unwrap();
-    fs::write(data.join("keep"), "backup").unwrap();
-    let output = Command::new(&cli)
-        .args(["--lang", "zh-CN", "self", "uninstall"])
+    let output = Command::new(env!("CARGO_BIN_EXE_gitwatch"))
+        .arg("--version")
         .env("GITWATCH_DATA_DIR", &data)
+        .env("GW_GIT_BIN", temp.path().join("missing-git"))
         .output()
         .unwrap();
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("--yes"));
-    assert!(cli.exists());
-    assert_eq!(fs::read_to_string(data.join("keep")).unwrap(), "backup");
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        format!("gitwatch {}", gitwatch::update::VERSION)
+    );
+    assert!(!data.exists());
 }

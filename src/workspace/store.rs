@@ -577,7 +577,6 @@ impl BackupStore {
     }
 
     // Task writers acquire tasks.lock before store.lock so all task kinds share names.
-    #[cfg(any(feature = "desktop", feature = "tui"))]
     pub(crate) fn check_task_name(&self, id: Uuid, name: &str) -> Result<()> {
         let _lock = self.lock()?;
         self.ensure_unique_name(&self.config()?, id, name)

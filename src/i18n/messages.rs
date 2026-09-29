@@ -1,5 +1,63 @@
 // English source messages are stable keys. Numbered values are inserted verbatim.
 pub(super) const TEXT: &[(&str, &str)] = &[
+    (
+        "Installation restored. Open gitwatch again to continue.",
+        "安装已恢复，请重新打开 gitwatch 后继续。",
+    ),
+    ("Confirm", "确认"),
+    ("Close", "关闭"),
+    ("Manage installation", "管理安装"),
+    ("Check for updates", "检查更新"),
+    ("Checking for updates…", "正在检查更新…"),
+    ("You are using the latest version.", "当前已是最新版本。"),
+    ("Uninstall application", "卸载应用"),
+    (
+        "Remove the installed application?",
+        "是否卸载已安装的应用？",
+    ),
+    ("Install gitwatch {0}?", "是否安装 gitwatch {0}？"),
+    (
+        "Running tasks will stop. Your task settings and backups will be kept.",
+        "运行中的任务将停止，任务设置和备份会保留。",
+    ),
+    (
+        "I agree to stop tasks and change this installation.",
+        "我同意停止任务并修改此安装。",
+    ),
+    (
+        "Updating the installation. Keep this window open.",
+        "正在修改安装，请保持窗口打开。",
+    ),
+    (
+        "Installation changed. Close this window before opening gitwatch again.",
+        "安装已修改，请关闭此窗口后再打开 gitwatch。",
+    ),
+    (
+        "Tasks have stopped. Close and reopen gitwatch to continue.",
+        "任务已停止，请关闭并重新打开 gitwatch 后继续。",
+    ),
+    ("Downloads and release notes", "下载与更新说明"),
+    ("Close gitwatch", "关闭 gitwatch"),
+    (
+        "The update worker stopped unexpectedly.",
+        "更新进程意外停止。",
+    ),
+    (
+        "An interrupted update was found. Restore the previous installation?",
+        "发现上次更新中断，是否恢复原来的安装？",
+    ),
+    (
+        "An interrupted update needs recovery. Reopen gitwatch to restore the previous installation.",
+        "上次更新中断，请重新打开 gitwatch 以恢复原来的安装。",
+    ),
+    (
+        "Open the installed gitwatch executable to manage this installation",
+        "请打开已安装的 gitwatch 程序以管理安装",
+    ),
+    (
+        "gitwatch is a desktop application. Open it without command-line arguments.",
+        "gitwatch 现为桌面应用，请不带命令行参数直接打开。",
+    ),
     ("Common ancestor", "共同基线"),
     ("Two-way sync", "双向同步"),
     ("Two-way sync…", "双向同步…"),
@@ -76,10 +134,6 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     (
         "Sync files applied. Start automatic runs to keep both computers updated.",
         "同步文件已写入。启动自动运行可持续获取和上传更新。",
-    ),
-    (
-        "1/2/3: Rebase/Merge/ff-only  i: interval  p: preview  w: save settings\ny: confirm changes  o: remote preview  u: undo preview  d: disable\n↑↓: conflict  v: compare  l/r: keep local/remote  e: edit text\nCtrl+S: save resolution  Enter: continue  c: cancel operation  Esc: close",
-        "1/2/3：Rebase/Merge/仅快进  i：间隔  p：预览  w：保存设置\ny：确认变更  o：预览远端  u：预览撤回  d：关闭同步\n↑↓：冲突文件  v：比较  l/r：保留本地/远端  e：编辑\nCtrl+S：保存解决结果  Enter：继续  c：取消操作  Esc：关闭",
     ),
     (
         "Cannot read saved backup result: {0}",
@@ -248,10 +302,6 @@ pub(super) const TEXT: &[(&str, &str)] = &[
         "远端没有此任务的备份，请先从另一台电脑上传",
     ),
     (
-        "Fetch and preview the latest remote backup, preserving both histories on confirmation.",
-        "获取并预览最新远程备份，确认恢复时保留双方历史。",
-    ),
-    (
         "Fetch the latest backup and preview changes before writing local files.",
         "获取最新备份，预览差异后再写入本地文件。",
     ),
@@ -300,23 +350,10 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     ),
     ("Follow symbolic links", "跟随符号链接"),
     (
-        "Follow symbolic links (Left/Right)",
-        "跟随符号链接（左右键切换）",
-    ),
-    (
         "Back up target contents, including outside this project. Restore requires ordinary destination paths.",
         "备份链接目标的实际内容，可能包含项目外的文件。恢复位置不能经过符号链接。",
     ),
-    (
-        "Back up symbolic-link target contents, including outside the source directory.",
-        "备份符号链接目标的实际内容，包括源目录外的文件。",
-    ),
-    (
-        "Enable or disable reading symbolic-link targets during backup.",
-        "启用或禁用备份时读取符号链接目标。",
-    ),
     ("Save", "保存"),
-    ("Workspaces", "工作空间"),
     ("Default workspace", "默认工作空间"),
     ("New workspace", "新建工作空间"),
     ("Rename workspace", "重命名工作空间"),
@@ -338,15 +375,6 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     (
         "The remote from your previous version is preserved.",
         "旧版本已配置的远程仓库会继续保留。",
-    ),
-    ("F4: workspaces", "F4：工作空间"),
-    (
-        "Tab: next field  Ctrl+S: save  Esc: cancel",
-        "Tab：下一项  Ctrl+S：保存  Esc：取消",
-    ),
-    (
-        "↑↓: select  Enter: switch  n: new  e: rename current  x: remove current  Esc: close",
-        "↑↓：选择  Enter：切换  n：新建  e：重命名当前空间  x：移除当前空间  Esc：关闭",
     ),
     ("Text lines", "文本行数"),
     ("File types", "文件类型"),
@@ -439,69 +467,8 @@ pub(super) const TEXT: &[(&str, &str)] = &[
         "Existing license file differs from the release",
         "现有许可文件与发布内容不同",
     ),
-    (
-        "Update or uninstall this gitwatch installation",
-        "更新或卸载当前 gitwatch 程序。",
-    ),
-    (
-        "Download and install the latest stable GitHub release",
-        "下载并安装 GitHub 上的最新稳定版本。",
-    ),
-    (
-        "Check for a newer version without changing the installation",
-        "检查新版本，不修改当前安装。",
-    ),
-    ("Select a stable release version", "指定稳定版本。"),
-    (
-        "Restore an installation interrupted during replacement",
-        "恢复替换过程中中断的安装。",
-    ),
-    (
-        "Confirm replacement with the official release build",
-        "确认替换为官方发布构建。",
-    ),
-    (
-        "Remove program binaries while keeping settings and backups",
-        "卸载程序，保留配置和备份。",
-    ),
-    (
-        "Confirm removal of the listed program files",
-        "确认删除列出的程序文件。",
-    ),
-    ("Installation restored.", "安装恢复完成。"),
-    (
-        "gitwatch {0} is available. Run gitwatch self update.",
-        "gitwatch {0} 已发布，运行 gitwatch self update 更新。",
-    ),
     ("gitwatch {0} is available.", "gitwatch {0} 已发布。"),
-    ("gitwatch is up to date.", "gitwatch 已是最新版本。"),
-    (
-        "Replace these programs with the official release build?",
-        "将这些程序替换为官方发布构建吗？",
-    ),
-    (
-        "Downloading and verifying the update…",
-        "正在下载并校验更新…",
-    ),
-    ("Updated to gitwatch {0}.", "已更新到 gitwatch {0}。"),
-    (
-        "Remove these programs? Settings and backups will be kept.",
-        "卸载这些程序吗？配置和备份将保留。",
-    ),
-    (
-        "Uninstalled. Settings and backups were kept.",
-        "已卸载，配置和备份已保留。",
-    ),
-    (
-        "Use --yes to confirm this operation non-interactively",
-        "非交互执行时，请使用 --yes 确认此操作",
-    ),
-    ("Operation cancelled", "操作已取消"),
     ("Release notes", "更新说明"),
-    (
-        "Choose Quit in the tray menu, then update from a terminal:",
-        "先在托盘菜单选择“退出”，然后在终端执行更新：",
-    ),
     (
         "No official release is available for this platform",
         "此平台暂无官方预编译版本",
@@ -568,28 +535,12 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     ),
     ("Archive entry size does not match", "压缩包条目大小不匹配"),
     (
-        "Run self management from the installed gitwatch executable",
-        "请通过已安装的 gitwatch 程序执行自身管理",
-    ),
-    (
-        "An interrupted operation needs recovery; run gitwatch self update --recover",
-        "上次操作中断，请运行 gitwatch self update --recover 恢复",
-    ),
-    (
-        "This desktop installation has no receipt; extract a current official release before self management",
-        "此桌面安装缺少清单，请先解压当前官方发布包，再使用自身管理命令",
-    ),
-    (
         "Current executable does not match the installation",
         "当前程序与安装清单不匹配",
     ),
     (
         "The selected release is not newer than this build",
         "所选版本不高于当前构建",
-    ),
-    (
-        "Release is missing an installed program",
-        "发布包缺少已安装的程序",
     ),
     (
         "Update failed; the previous installation was restored",
@@ -653,7 +604,6 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     ("Keep a history of your work.", "为你的工作保留历史记录。"),
     ("Working in background…", "正在后台处理…"),
     ("Working…", "处理中…"),
-    ("Ready", "就绪"),
     (
         "Ready. Previously started tasks resume automatically.",
         "已就绪。之前启动的任务会自动恢复。",
@@ -678,7 +628,6 @@ pub(super) const TEXT: &[(&str, &str)] = &[
         "遇到冲突时任务会停止。请在 Git 中解决或中止操作，再重新启动任务。",
     ),
     ("Pull strategy", "拉取策略"),
-    ("Pull strategy (Left/Right)", "拉取策略（左右方向键）"),
     ("Fast-forward only", "仅快进"),
     ("Merge", "合并"),
     ("Rebase", "变基"),
@@ -704,8 +653,6 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     ("Replace", "覆盖"),
     ("Unchanged", "未更改"),
     ("unchanged", "未更改"),
-    ("Saved", "已保存"),
-    ("Cloned", "已克隆"),
     ("Updated", "已更新"),
     ("Disabled", "未启用"),
     ("Pending", "待上传"),
@@ -780,72 +727,6 @@ pub(super) const TEXT: &[(&str, &str)] = &[
         "gitwatch  /  Workspaces · Repository watch · Scheduled pull",
         "gitwatch  /  工作空间 · 仓库监听 · 定时拉取",
     ),
-    (
-        "Includes (Alt+Enter: newline)",
-        "选择路径（Alt+Enter 换行）",
-    ),
-    (
-        "Excludes (one glob per line)",
-        "排除规则（每行一个 glob 表达式）",
-    ),
-    (
-        "Remote (empty = no push for watch)",
-        "远端（留空则不上传监听提交）",
-    ),
-    ("Clone URL (pull)", "克隆地址（定时拉取）"),
-    ("Pull interval, seconds", "拉取间隔（秒）"),
-    ("Watch delay, seconds", "监听等待时间（秒）"),
-    (
-        "{0} task — F2: mode; Tab: field; Ctrl+S: save; Esc: cancel",
-        "{0}任务  F2：切换类型  Tab：下一项  Ctrl+S：保存  Esc：取消",
-    ),
-    (
-        "Backup remote URL (Ctrl+P: toggle auto-push; Enter: save; Esc: cancel)",
-        "备份远端地址（Ctrl+P：切换自动上传；Enter：保存；Esc：取消）",
-    ),
-    (
-        "Import: ↑↓ choose branch; type local directory; Enter: import; Esc: cancel",
-        "导入：↑↓ 选择分支；输入本地目录；Enter 导入；Esc 取消",
-    ),
-    (
-        "Restore paths: one per line, empty = all (Alt+Enter: newline; Enter: preview)",
-        "恢复路径：每行一项，留空表示全部（Alt+Enter 换行；Enter 预览）",
-    ),
-    ("\nAuto-push: {0}", "\n自动上传：{0}"),
-    ("\nBranch: {0}", "\n分支：{0}"),
-    ("yes", "是"),
-    ("no", "否"),
-    ("none", "无"),
-    (
-        "Remove selected local binding? History is retained. y: confirm / Esc: cancel\n\n",
-        "移除选中的本地绑定？历史记录会保留。y 确认 / Esc 取消\n\n",
-    ),
-    ("Restore {0}\n{1}\n", "恢复 {0}\n{1}\n"),
-    (
-        "Apply this preview? Existing files are copied to recovery first. y: confirm / Esc: cancel\n",
-        "应用此恢复预览？现有文件会先复制到恢复目录。y 确认 / Esc 取消\n",
-    ),
-    (
-        "[: previous file  ]: next file  Enter: contents  R: review confirmation\n",
-        "[：上一个文件  ]：下一个文件  Enter：查看内容  R：进入确认\n",
-    ),
-    (
-        "History ([: previous, ]: next; v: restore preview; d: diff to older)\n",
-        "历史记录（[ 上一个；] 下一个；v 恢复预览；d 与旧版本比较）\n",
-    ),
-    (
-        "\nFetched branches (i: select and import):\n",
-        "\n已获取的分支（i 选择并导入）：\n",
-    ),
-    ("\n\nActivity\n", "\n\n活动记录\n"),
-    (
-        "History / Restore / Activity — PgUp/PgDn",
-        "历史 / 恢复 / 活动记录  PgUp/PgDn 翻页",
-    ),
-    (
-        "n: new  e: edit  s: start/stop  b: run once  h: history  p: push  x: remove\nu: backup remote  f: fetch  o: restore remote  F3: language  F5: refresh  q: quit  ↑↓: select",
-        "n：新建 e：编辑 s：启停 b：执行一次 h：历史 p：上传 x：移除\nu：备份远端 f：获取 o：远程恢复 F3：语言 F5：刷新 q：退出 ↑↓：选择",
-    ),
     ("{0}: {1}", "{0}：{1}"),
     ("{0} at {1}", "{0}，版本 {1}"),
     ("Updated to {0}", "已更新到 {0}"),
@@ -874,142 +755,12 @@ pub(super) const TEXT: &[(&str, &str)] = &[
         "本地：{0}；{1} 个文件；上传：{2}",
     ),
     ("Upload: {0}", "上传：{0}"),
-    ("{0} {1} at {2}", "{0} {1}，版本 {2}"),
-    (
-        "Registered {0} ({1}) on branch {2}",
-        "已注册 {0}（{1}），备份分支 {2}",
-    ),
-    ("{0}  {1}  branch={2}  {3}{4}", "{0}  {1}  分支={2}  {3}{4}"),
-    (" [paused]", " [已暂停]"),
-    ("Updated {0}", "已更新 {0}"),
-    ("Bound {0} to {1}", "已将 {0} 绑定到 {1}"),
-    (
-        "Binding removed; branch history retained",
-        "绑定已移除，分支历史已保留",
-    ),
-    (
-        "Local {0} ({1} files); upload {2}",
-        "本地 {0}（{1} 个文件）；上传 {2}",
-    ),
-    ("No backup yet", "尚无备份"),
-    (
-        "Remote configured: {0}; automatic upload: {1}",
-        "已配置远端：{0}；自动上传：{1}",
-    ),
-    (
-        "Imported {0} (paused). Preview a restore before resuming.",
-        "已导入 {0}（已暂停）。恢复运行前请先预览文件恢复。",
-    ),
-    (
-        "Restored {0} files. Recovery copies: {1}",
-        "已恢复 {0} 个文件。覆盖前副本：{1}",
-    ),
-    (
-        "{0}\nPlan: {1}\nConfirm with: gitwatch workspace restore {2} --plan {3} --confirm",
-        "{0}\n恢复计划：{1}\n确认命令：gitwatch workspace restore {2} --plan {3} --confirm",
-    ),
-    ("Committed {0}; upload {1}", "已提交 {0}；上传 {1}"),
-    ("Paused: {0}", "已暂停：{0}"),
-    (
-        "{0} {1} ({2} files; {3} retained); upload {4}",
-        "{0} {1}（{2} 个文件；保留 {3} 个缺失项）；上传 {4}",
-    ),
-    ("Upload pending: {0}", "等待上传：{0}"),
-    ("Upload synchronized", "上传已同步"),
-    ("Language (en or zh-CN)", "界面语言（en 或 zh-CN）"),
-    ("Options", "选项"),
-    ("Arguments", "参数"),
-    ("Commands", "命令"),
-    (
-        "Watch Git repositories or back up projects to workspace branches",
-        "监听 Git 仓库，或将项目文件备份到工作空间分支",
-    ),
-    (
-        "Store directory for workspace backups and local bindings",
-        "保存工作空间备份和本地绑定的目录",
-    ),
-    (
-        "Emit versioned JSON records on stdout",
-        "在标准输出中生成带格式版本的 JSON 记录",
-    ),
-    (
-        "Show pending events and detailed status",
-        "显示待处理事件和详细状态",
-    ),
-    (
-        "Existing file or directory within a Git repository",
-        "Git 仓库中已有的文件或目录",
-    ),
-    (
-        "Filter change events with a regex; this does not exclude files from commits",
-        "使用正则过滤触发提交的事件；不会从提交中排除文件",
-    ),
-    (
-        "Portable native-event filter: create,modify,delete,move,move_self,close_write",
-        "跨平台文件事件过滤：create,modify,delete,move,move_self,close_write",
-    ),
-    (
-        "Compatibility flag; active Git operations are always deferred safely",
-        "兼容选项；Git 操作进行中时始终推迟自动提交",
-    ),
-    (
-        "Commit once and exit instead of starting a watch loop",
-        "执行一次提交后退出",
-    ),
-    (
-        "Use content polling without native filesystem events",
-        "定期检查文件内容，不使用文件系统通知",
-    ),
-    (
-        "Clone or periodically update a local repository",
-        "克隆仓库或定期更新本地仓库",
-    ),
-    (
-        "How to integrate remote history: ff-only, merge or rebase",
-        "拉取策略：ff-only（仅快进）、merge（合并）或 rebase（变基）",
-    ),
-    (
-        "Explicit form of the legacy positional watch command",
-        "显式指定监听命令",
-    ),
-    (
-        "Manage projects backed up on independent branches of one repository",
-        "管理备份到同一仓库不同分支的工作空间",
-    ),
-    (
-        "Open the terminal interface (requires the tui feature)",
-        "打开终端界面（需要 tui 功能）",
-    ),
-    (
-        "Open the desktop interface (requires the desktop feature)",
-        "打开桌面界面（需要 desktop 功能）",
-    ),
-    (
-        "Remove a local binding while retaining its backup branch",
-        "移除本地绑定，保留备份分支",
-    ),
     ("Print help", "显示帮助"),
     ("Print version", "显示版本"),
     (
         "Print this message or the help of the given subcommand(s)",
         "显示此帮助或指定子命令的帮助",
     ),
-    ("gitwatch desktop", "gitwatch 桌面界面"),
-    ("Invalid command-line arguments", "命令行参数有误"),
-    ("Unknown argument", "未知参数"),
-    ("Unknown subcommand", "未知子命令"),
-    ("Missing required arguments", "缺少必要参数"),
-    ("Choose a subcommand", "请选择子命令"),
-    ("Conflicting arguments", "参数相互冲突"),
-    ("Invalid argument value", "参数值无效"),
-    ("Incorrect number of argument values", "参数值的数量不正确"),
-    ("Argument", "参数"),
-    ("Subcommand", "子命令"),
-    ("Value", "值"),
-    ("Allowed values", "允许的值"),
-    ("Conflicts with", "冲突参数"),
-    ("Available commands", "可用命令"),
-    ("Run --help to see usage.\n", "运行 --help 查看用法。\n"),
     (
         "Git {0} failed (exit {1}): {2}",
         "Git {0} 失败（退出码 {1}）：{2}",
@@ -1073,10 +824,6 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     (
         "Backup branch conflicts with an existing branch name",
         "备份分支与已有分支名称冲突",
-    ),
-    (
-        "Migrate the backup history to this branch, including on the configured remote.",
-        "迁移备份历史到此分支，包括已配置的远端分支。",
     ),
     (
         "Invalid backup branch; use a Git-compatible task name or set a branch explicitly",
@@ -1203,9 +950,6 @@ pub(super) const TEXT: &[(&str, &str)] = &[
         "指定目标分支时必须配置远端",
     ),
     ("Invalid remote", "远端无效"),
-    ("pull/rebase requires a remote", "拉取并变基需要配置远端"),
-    ("Unsupported date format", "不支持此日期格式"),
-    ("Invalid event exclusion regex", "事件排除正则表达式无效"),
     (
         "Current branch changed; restart this watch explicitly",
         "当前分支已改变，请手动重新启动监听",
@@ -1228,15 +972,6 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     ),
     ("Worktree is unavailable", "工作目录不可用"),
     ("Unsupported source file type", "不支持此源文件类型"),
-    (
-        "Unclosed quote in message command",
-        "生成提交信息的命令中有未闭合的引号",
-    ),
-    ("Message command is empty", "生成提交信息的命令为空"),
-    (
-        "Message command must emit UTF-8",
-        "生成提交信息的命令必须输出 UTF-8 内容",
-    ),
     ("Workspace was removed", "工作空间已被移除"),
     (
         "Polling must be positive and max-wait must cover debounce",
@@ -1300,57 +1035,6 @@ pub(super) const TEXT: &[(&str, &str)] = &[
     (
         "Source and backup data directories must not contain one another",
         "源目录和备份数据目录不能相互包含",
-    ),
-    (
-        "Direct watch arguments must follow the watch subcommand",
-        "监听参数必须放在 watch 子命令之后",
-    ),
-    (
-        "TUI was not compiled; install gitwatch with --features tui",
-        "未编译终端界面，请使用 --features tui 安装",
-    ),
-    (
-        "Desktop was not compiled; install gitwatch with --features desktop",
-        "未编译桌面界面，请使用 --features desktop 安装",
-    ),
-    (
-        "Desktop binary is not installed beside gitwatch",
-        "gitwatch 所在目录中没有桌面可执行文件",
-    ),
-    (
-        "Provide a file or directory to watch",
-        "请指定要监听的文件或目录",
-    ),
-    (
-        "Local operation completed but upload failed",
-        "本地操作已完成，但上传失败",
-    ),
-    (
-        "Local backup saved; automatic upload failed",
-        "本地备份已保存，但自动上传失败",
-    ),
-    (
-        "Restore plan belongs to a different workspace",
-        "恢复计划属于另一个工作空间",
-    ),
-    (
-        "Use --confirm to apply the saved preview",
-        "请使用 --confirm 执行已保存的恢复预览",
-    ),
-    (
-        "Confirmation requires a saved --plan",
-        "确认恢复时需要通过 --plan 指定已保存的计划",
-    ),
-    ("Specify a workspace or --all", "请指定工作空间或使用 --all"),
-    ("No workspaces configured", "尚未配置工作空间"),
-    ("Watch thread terminated unexpectedly", "监听线程意外终止"),
-    (
-        "Workspace selector is unknown or ambiguous; use its UUID",
-        "工作空间名称无法匹配或不唯一，请使用 UUID",
-    ),
-    (
-        "Duration must be finite and nonnegative",
-        "时长必须是有限的非负数",
     ),
     ("Invalid revision", "版本引用无效"),
     ("Invalid workspace branch", "工作空间分支无效"),
@@ -1610,10 +1294,6 @@ pub(super) const ERRORS: &[(&str, &str)] = &[
         "Repository operation in progress: {}",
         "仓库操作正在进行：{0}",
     ),
-    (
-        "Message command failed (exit {}); staged changes preserved",
-        "生成提交信息的命令失败（退出码 {0}），已保留暂存更改",
-    ),
     ("Unsupported portable event: {}", "不支持此跨平台事件：{0}"),
     (
         "Native watch unavailable; polling continues: {}",
@@ -1624,5 +1304,4 @@ pub(super) const ERRORS: &[(&str, &str)] = &[
         "进程超过 {0} 秒时限",
     ),
     ("Desktop failed: {}", "桌面界面运行失败：{0}"),
-    ("Partial restore: {}", "部分文件恢复失败：{0}"),
 ];

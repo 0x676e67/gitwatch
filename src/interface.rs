@@ -57,7 +57,6 @@ pub(crate) struct Row {
     pub running: bool,
     pub status: Text,
     pub sync: Option<SyncStatus>,
-    #[cfg(feature = "desktop")]
     pub backup: Option<crate::workspace::BackupReport>,
 }
 
@@ -71,26 +70,17 @@ enum Scope {
 
 pub(crate) enum Command {
     Language(Language),
-    #[cfg(feature = "desktop")]
     StartInTray(bool),
     Refresh,
     Save(Draft),
     Remove(Uuid),
-    #[cfg(feature = "desktop")]
-    Reorder {
-        id: Uuid,
-        target: Uuid,
-        after: bool,
-    },
+    Reorder { id: Uuid, target: Uuid, after: bool },
     Start(Uuid),
     Stop(Uuid),
     Once(Uuid),
     Push(Uuid),
     Remote(String, bool),
     Fetch,
-    #[cfg(feature = "tui")]
-    Import(String, PathBuf),
-    #[cfg(feature = "desktop")]
     ImportPreview(String, PathBuf),
     History(Uuid),
     Diff(Uuid, String, String),
@@ -111,14 +101,11 @@ pub(crate) enum Command {
 
 enum Message {
     Language(Language),
-    #[cfg(feature = "desktop")]
     StartInTray(bool),
     Rows(Vec<Row>),
     Remote(Option<String>, bool),
     Status(Uuid, Text),
-    #[cfg(feature = "desktop")]
     Backup(crate::workspace::BackupReport),
-    #[cfg(feature = "desktop")]
     Upload(Uuid, crate::workspace::UploadState),
     Schedule(Uuid, Option<Instant>),
     History(Vec<HistoryEntry>),
@@ -131,16 +118,13 @@ enum Message {
 }
 
 pub(crate) struct Model {
-    #[cfg(feature = "desktop")]
     pub feedback: Option<Text>,
-    #[cfg(feature = "desktop")]
     pub operation: Text,
     pub update: Option<crate::update::Release>,
     notifications: Option<crate::update::Notifications>,
     pub remote: Option<String>,
     pub auto_push: bool,
     pub language: Language,
-    #[cfg(feature = "desktop")]
     pub start_in_tray: bool,
     pub rows: Vec<Row>,
     pub pull_schedule: HashMap<Uuid, Option<Instant>>,
@@ -324,7 +308,6 @@ impl Model {
                     active: HashMap::new(),
                     states: HashMap::new(),
                 };
-                #[cfg(feature = "desktop")]
                 messages.send(Message::StartInTray(
                     crate::preferences::Preferences::load(worker.store.directory())?.start_in_tray,
                 ))?;
@@ -350,9 +333,7 @@ impl Model {
             }
         });
         Self {
-            #[cfg(feature = "desktop")]
             feedback: None,
-            #[cfg(feature = "desktop")]
             operation: "Loading tasks…".into(),
             update: None,
             notifications,
@@ -369,7 +350,6 @@ impl Model {
             text: Text::default(),
             language,
             logs: VecDeque::new(),
-            #[cfg(feature = "desktop")]
             start_in_tray: false,
             busy: true,
             error: None,
@@ -388,7 +368,6 @@ impl Model {
             self.sync_target = Some(*id);
         }
         self.error = None;
-        #[cfg(feature = "desktop")]
         {
             self.operation = command.description(&self.rows);
             self.feedback = None;
@@ -440,7 +419,6 @@ impl Model {
                     self.auto_push = auto_push;
                 }
                 Message::Language(language) => self.language = language,
-                #[cfg(feature = "desktop")]
                 Message::StartInTray(enabled) => self.start_in_tray = enabled,
                 Message::Rows(mut rows) => {
                     self.pull_schedule.retain(|id, _| {
@@ -484,7 +462,6 @@ impl Model {
                         };
                     self.log(Text::format("{0}: {1}", [name, text]));
                 }
-                #[cfg(feature = "desktop")]
                 Message::Backup(report) => {
                     if let Some(row) = self
                         .rows
@@ -494,7 +471,6 @@ impl Model {
                         row.backup = Some(report);
                     }
                 }
-                #[cfg(feature = "desktop")]
                 Message::Upload(id, upload) => {
                     if let Some(report) = self
                         .rows
@@ -509,11 +485,9 @@ impl Model {
                     self.busy = false;
                     match result {
                         Ok(text) => {
-                            #[cfg(feature = "desktop")]
                             let completed = (text == Text::from("Completed"))
                                 .then(|| Text::format("{0} — done", [self.operation.clone()]));
                             self.log(text);
-                            #[cfg(feature = "desktop")]
                             if let Some(completed) = completed {
                                 self.feedback = Some(completed);
                             }
@@ -535,7 +509,6 @@ impl Model {
     }
 
     fn log(&mut self, text: Text) {
-        #[cfg(feature = "desktop")]
         {
             self.feedback = Some(text.clone());
         }
@@ -557,7 +530,6 @@ impl Drop for Model {
 
 // ===== impl Command =====
 
-#[cfg(feature = "desktop")]
 impl Command {
     fn description(&self, rows: &[Row]) -> Text {
         let (label, id) = match self {
@@ -588,8 +560,6 @@ impl Command {
             Self::Language(_) | Self::StartInTray(_) => ("Save app settings", None),
             Self::Reorder { .. } => ("Reorder tasks", None),
             Self::Diff(..) | Self::Contents(..) => ("Compare files", None),
-            #[cfg(feature = "tui")]
-            Self::Import(..) => ("Import task", None),
         };
         match id.and_then(|id| rows.iter().find(|row| row.draft.id == Some(id))) {
             Some(row) => Text::format("{0}: {1}", [Text::value(&row.draft.name), label.into()]),
@@ -700,7 +670,6 @@ impl Worker {
                     .and_then(|id| self.states.get(&id))
                     .cloned()
                     .unwrap_or_else(|| if running { "Running" } else { "Stopped" }.into());
-                #[cfg(feature = "desktop")]
                 let (status, backup) = if draft.kind == Kind::Workspace
                     && let Some(id) = draft.id
                 {
@@ -726,7 +695,6 @@ impl Worker {
                     draft,
                     running,
                     status,
-                    #[cfg(feature = "desktop")]
                     backup,
                 }
             })
@@ -824,7 +792,6 @@ impl Worker {
                 language.save(self.store.directory())?;
                 let _ = self.sender.send(Message::Language(language));
             }
-            #[cfg(feature = "desktop")]
             Command::StartInTray(enabled) => {
                 crate::preferences::Preferences::update(self.store.directory(), |preferences| {
                     preferences.start_in_tray = enabled
@@ -832,7 +799,6 @@ impl Worker {
                 let _ = self.sender.send(Message::StartInTray(enabled));
             }
             Command::Refresh => self.refresh()?,
-            #[cfg(feature = "desktop")]
             Command::Reorder { id, target, after } => {
                 let mut order: Vec<_> = self
                     .drafts()?
@@ -1002,7 +968,6 @@ impl Worker {
                             let _ = sender.send(Message::Sync(status.clone()));
                             return;
                         }
-                        #[cfg(feature = "desktop")]
                         match &event {
                             Event::Backup(report) => {
                                 let _ = sender.send(Message::Backup(report.clone()));
@@ -1156,12 +1121,6 @@ impl Worker {
                         .into(),
                 );
             }
-            #[cfg(feature = "tui")]
-            Command::Import(branch, root) => {
-                self.store.import(&branch, root)?;
-                self.refresh()?;
-            }
-            #[cfg(feature = "desktop")]
             Command::ImportPreview(branch, root) => {
                 let workspace = self.store.import(&branch, root)?;
                 self.refresh()?;
@@ -1510,7 +1469,6 @@ mod tests {
                     running: true,
                     status: "Running".into(),
                     sync: None,
-                    #[cfg(feature = "desktop")]
                     backup: None,
                 })
                 .collect()
@@ -1538,7 +1496,6 @@ mod tests {
             model.rows[0].status.render(Language::English),
             "Changes pending"
         );
-        #[cfg(feature = "desktop")]
         assert_eq!(
             model.feedback.as_ref().unwrap().render(Language::English),
             "quic: Changes pending",
@@ -1763,13 +1720,10 @@ mod tests {
                             .unwrap()
                             .history(id, None, 100)
                             .unwrap();
-                        #[cfg(feature = "desktop")]
                         let observed = model.rows[0]
                             .backup
                             .as_ref()
                             .is_some_and(|report| report.commit() == history[0].commit());
-                        #[cfg(not(feature = "desktop"))]
-                        let observed = true;
                         history.len() == 2 && observed
                     }
                     Kind::Watch => git(&source, &["show", "HEAD:notes.md"]) == "second",
@@ -1802,7 +1756,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "desktop")]
     #[test]
     fn task_order_survives_edits_moves_new_tasks_and_restarts() {
         let temp = tempfile::tempdir().unwrap();
@@ -2268,7 +2221,6 @@ mod tests {
         model.send(Command::Push(id));
         wait(&mut model);
         assert!(model.error.is_some());
-        #[cfg(feature = "desktop")]
         assert!(matches!(
             model.rows[0].backup.as_ref().unwrap().upload(),
             crate::workspace::UploadState::Failed { .. }
@@ -2278,7 +2230,6 @@ mod tests {
             Command::Remote(remote.to_string_lossy().into_owned(), false),
         );
         command(&mut model, Command::Push(id));
-        #[cfg(feature = "desktop")]
         assert!(matches!(
             model.rows[0].backup.as_ref().unwrap().upload(),
             crate::workspace::UploadState::Synced
@@ -2313,7 +2264,6 @@ mod tests {
         wait(&mut model);
         assert_eq!(model.rows.len(), 2);
         assert!(model.rows.iter().all(|r| !r.running));
-        #[cfg(feature = "desktop")]
         {
             let report = model
                 .rows

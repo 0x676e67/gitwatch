@@ -81,9 +81,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libgl1-mesa-dev
       - name: Stable toolchain
         run: rustup update stable --no-self-update
-      - name: Build CLI, TUI and desktop
-        run: cargo +stable build --locked --release --all-features --target ${{ matrix.target }}
-      - name: Check packaged CLI
+      - name: Build desktop
+        run: cargo +stable build --locked --release --target ${{ matrix.target }}
+      - name: Check packaged desktop
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
@@ -91,7 +91,6 @@ jobs:
           suffix=''
           if [[ "$RUNNER_OS" == Windows ]]; then suffix='.exe'; fi
           "target/$TARGET/release/gitwatch$suffix" --version
-          "target/$TARGET/release/gitwatch$suffix" --help
       - name: Package binaries
         env:
           RELEASE_TAG: ${{ needs.version.outputs.tag }}
@@ -112,13 +111,13 @@ jobs:
           files = [pathlib.Path('LICENSE'), pathlib.Path('README.md')]
           files += [pathlib.Path('src/fonts', file) for file in ['OFL.txt', 'NOTICE']]
           files += [pathlib.Path('target', target, 'release', binary + suffix)
-                    for binary in ['gitwatch', 'gitwatch-desktop']]
+                    for binary in ['gitwatch']]
           receipt = pathlib.Path('gitwatch-install.json')
           receipt.write_text(json.dumps({
               'version': os.environ['RELEASE_TAG'].removeprefix('v'),
               'target': target,
               'files': {file.name: hashlib.sha256(file.read_bytes()).hexdigest()
-                        for file in files if file.name in ['gitwatch' + suffix, 'gitwatch-desktop' + suffix]}
+                        for file in files if file.name in ['gitwatch' + suffix]}
           }, indent=2), encoding='utf-8')
           files.append(receipt)
           pathlib.Path('dist').mkdir()
@@ -176,6 +175,8 @@ jobs:
           published = any(version['num'] == package['version'] for version in crate['versions'])
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f'published={str(published).lower()}\n')
+      - name: Linux desktop dependencies
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libgl1-mesa-dev
       - name: Verify crate before authentication
         if: steps.registry.outputs.published != 'true'
         run: cargo +stable publish --locked --dry-run
