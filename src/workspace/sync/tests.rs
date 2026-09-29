@@ -367,6 +367,15 @@ fn remote_polling_needs_no_local_event_and_push_races_never_force_remote_history
             },
         )
     });
+    assert!(
+        receiver
+            .recv_timeout(std::time::Duration::from_millis(1500))
+            .is_err(),
+        "Paused bindings must not synchronize"
+    );
+    pair.b
+        .update(workspace.edit().paused(false).build().unwrap())
+        .unwrap();
     receiver
         .recv_timeout(std::time::Duration::from_secs(20))
         .unwrap();

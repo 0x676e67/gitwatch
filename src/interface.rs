@@ -179,6 +179,16 @@ impl Kind {
     }
 }
 
+impl Row {
+    pub(crate) fn mode_label(&self, language: Language) -> &'static str {
+        if self.sync.as_ref().is_some_and(|status| status.enabled()) {
+            language.text("Two-way sync")
+        } else {
+            self.draft.kind.label(language)
+        }
+    }
+}
+
 // ===== impl PullStrategy =====
 
 impl PullStrategy {

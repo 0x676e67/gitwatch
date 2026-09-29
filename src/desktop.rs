@@ -385,7 +385,7 @@ impl Desktop {
                                 }
                                 });
                                 ui.horizontal_wrapped(|ui| {
-                                    ui.weak(row.draft.kind.label(language));
+                                    ui.weak(row.mode_label(language));
                                     ui.colored_label(if row.running { theme::ACCENT } else { theme::MUTED }, language.text(if row.running { "Running" } else { "Stopped" }));
                                 });
                                 if overview::has_activity(&row.status) { ui.add(egui::Label::new(RichText::new(row.status.render(language)).small().color(overview::status_color(&row.status))).truncate()).on_hover_text(row.status.render(language)); }

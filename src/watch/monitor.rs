@@ -181,9 +181,14 @@ fn run_sync(
     stop: StopToken,
     mut report: impl FnMut(Event),
 ) -> Result<()> {
+    let job = Job::Workspace(store.clone(), id);
     loop {
         if stop.is_stopped() {
             return Ok(());
+        }
+        if job.paused()? {
+            std::thread::sleep(Duration::from_millis(100));
+            continue;
         }
         let state = store.sync_status(id)?;
         report(Event::Sync(state.clone()));
@@ -206,6 +211,9 @@ fn run_sync(
         }
         if stop.is_stopped() {
             return Ok(());
+        }
+        if job.paused()? {
+            continue;
         }
         match store.synchronize(id) {
             Ok(result) => report(Event::Backup(result)),

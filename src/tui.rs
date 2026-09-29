@@ -310,7 +310,7 @@ impl Screen {
                         "{} {} [{}]\n  {}",
                         if r.running { "●" } else { "○" },
                         r.draft.name,
-                        r.draft.kind.label(language),
+                        r.mode_label(language),
                         r.status.render(language)
                     ))
                 })
