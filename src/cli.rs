@@ -156,6 +156,12 @@ enum SelfAction {
 
 #[derive(Subcommand)]
 enum WorkspaceAction {
+    /// Synchronize selected files using the dedicated backup repository.
+    Sync {
+        workspace: String,
+        #[command(subcommand)]
+        action: SyncAction,
+    },
     Add {
         root: PathBuf,
         #[arg(long)]
@@ -269,6 +275,47 @@ enum WorkspaceAction {
         no_initial: bool,
         #[arg(long)]
         polling: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum SyncAction {
+    /// Preview first-time alignment. Use the returned token with confirm.
+    Enable {
+        #[arg(long, value_enum, default_value = "rebase")]
+        strategy: gitwatch::pull::PullStrategy,
+        #[arg(long, default_value_t = 60)]
+        every: u64,
+    },
+    /// Fetch and preview replacing tracked local files with the remote version.
+    Remote,
+    /// Apply an exact saved preview, or resume an interrupted application.
+    Confirm {
+        token: Uuid,
+    },
+    /// Save, fetch, integrate, apply and push once.
+    Now,
+    Status,
+    /// Select the integration policy and polling interval for an enabled task.
+    Settings {
+        #[arg(long, value_enum, default_value = "rebase")]
+        strategy: gitwatch::pull::PullStrategy,
+        #[arg(long, default_value_t = 60)]
+        every: u64,
+    },
+    Disable,
+    Cancel,
+    /// Continue integration after resolving all files; returns a source-write preview.
+    Continue,
+    /// Preview undoing the last source application.
+    Undo,
+    /// Resolve a conflict with explicit bytes, or delete it.
+    Resolve {
+        path: String,
+        #[arg(long, conflicts_with = "delete", required_unless_present = "delete")]
+        file: Option<PathBuf>,
+        #[arg(long)]
+        delete: bool,
     },
 }
 
@@ -611,6 +658,63 @@ fn workspace_command(
     language: Language,
 ) -> Result<()> {
     match command {
+        WorkspaceAction::Sync { workspace, action } => {
+            use gitwatch::workspace::SyncOptions;
+            let id = find(&store, &workspace)?.id();
+            let status = match action {
+                SyncAction::Enable { strategy, every } => store.preview_sync(
+                    id,
+                    SyncOptions::default().strategy(strategy).interval(every),
+                    false,
+                )?,
+                SyncAction::Remote => {
+                    store.preview_sync(id, store.sync_status(id)?.options().clone(), true)?
+                }
+                SyncAction::Confirm { token } => store.confirm_sync(id, token)?,
+                SyncAction::Now => {
+                    let report = store.synchronize(id)?;
+                    event(Event::Backup(report), json, verbose, language);
+                    store.sync_status(id)?
+                }
+                SyncAction::Status => store.sync_status(id)?,
+                SyncAction::Settings { strategy, every } => {
+                    store.configure_sync(
+                        id,
+                        SyncOptions::default().strategy(strategy).interval(every),
+                        true,
+                    )?;
+                    store.sync_status(id)?
+                }
+                SyncAction::Disable => {
+                    store.configure_sync(id, store.sync_status(id)?.options().clone(), false)?;
+                    store.sync_status(id)?
+                }
+                SyncAction::Cancel => {
+                    store.cancel_sync(id)?;
+                    store.sync_status(id)?
+                }
+                SyncAction::Continue => store.continue_sync(id)?,
+                SyncAction::Undo => store.preview_sync_undo(id)?,
+                SyncAction::Resolve { path, file, .. } => {
+                    let bytes = file
+                        .map(|path| -> Result<Vec<u8>> {
+                            use std::io::Read;
+                            let mut bytes = Vec::new();
+                            std::fs::File::open(path)?
+                                .take(16 * 1024 * 1024 + 1)
+                                .read_to_end(&mut bytes)?;
+                            anyhow::ensure!(
+                                bytes.len() <= 16 * 1024 * 1024,
+                                "Resolved file exceeds 16 MiB"
+                            );
+                            Ok(bytes)
+                        })
+                        .transpose()?;
+                    store.resolve_sync_file(id, &path, bytes.as_deref())?
+                }
+            };
+            emit(&status, json, serde_json::to_string_pretty(&status)?)?;
+        }
         WorkspaceAction::Add {
             root,
             name,
@@ -1035,6 +1139,11 @@ fn event(value: Event, json: bool, verbose: bool, language: Language) {
         return;
     }
     match value {
+        Event::Sync(status) => {
+            if verbose {
+                println!("{}", serde_json::to_string(&status).unwrap_or_default());
+            }
+        }
         Event::Repository(report) => {
             if let Some(commit) = report.commit() {
                 println!(

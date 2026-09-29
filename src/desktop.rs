@@ -5,6 +5,7 @@ mod icons;
 mod overview;
 mod repository;
 mod restore;
+mod sync;
 mod theme;
 mod tray;
 
@@ -66,6 +67,7 @@ struct Desktop {
     auto_push: bool,
     settings: bool,
     restore: Option<restore::Flow>,
+    sync: Option<sync::Flow>,
 }
 
 /// Runs the native desktop interface; Git and filesystem work stays on workers.
@@ -132,6 +134,7 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
                 auto_push: false,
                 settings: false,
                 restore: None,
+                sync: None,
             }))
         }),
     )
@@ -550,6 +553,7 @@ impl Desktop {
         self.remove = false;
         self.restore_files.clear();
         self.restore = None;
+        self.sync = None;
         self.remote.clear();
         self.model.plan = None;
         self.model.history.clear();
@@ -761,6 +765,11 @@ impl Desktop {
         } else if self.history_open {
             self.history_window(ui.ctx());
         }
+        if let Some(flow) = &mut self.sync
+            && flow.show(ui.ctx(), &mut self.model)
+        {
+            self.sync = None;
+        }
         egui::Window::new(language.text("App settings"))
             .open(&mut self.desktop_settings)
             .collapsible(false)
@@ -813,6 +822,14 @@ impl Desktop {
             return;
         };
         let running = row.running;
+        let syncing = row.sync.as_ref().is_some_and(|s| s.enabled());
+        let sync_attention = row.sync.as_ref().is_some_and(|s| {
+            !matches!(
+                s.phase(),
+                crate::workspace::SyncPhase::Ready | crate::workspace::SyncPhase::Disabled
+            )
+        });
+        let sync_deadline = row.sync.as_ref().and_then(|s| s.next_check());
         let kind = row.draft.kind;
         let draft = row.draft.clone();
         let pull_strategy = draft.pull_strategy;
@@ -825,7 +842,7 @@ impl Desktop {
         ui.add_enabled_ui(!self.model.busy, |ui| {
             ui.horizontal_wrapped(|ui| {
                 let icon = if kind == Kind::Workspace { Icon::Backup } else { Icon::Once };
-                if ui.add(icon.button(language.text(overview::once_label(kind, self.model.auto_push && self.model.remote.is_some())))).clicked() {
+                if ui.add_enabled(!sync_attention, icon.button(language.text(if syncing { "Sync now" } else { overview::once_label(kind, self.model.auto_push && self.model.remote.is_some()) }))).clicked() {
                     self.model.send(Command::Once(id));
                 }
                 if ui
@@ -847,10 +864,10 @@ impl Desktop {
                     .on_disabled_hover_text(language.text("Pause automatic runs before editing this task."))
                     .clicked()
                 {
-                    self.draft = Some(draft);
+                    self.draft = Some(draft.clone());
                     ui.close();
                 }
-                if kind == Kind::Workspace && self.model.remote.is_some() && ui.add(Icon::Upload.button(language.text("Upload saved backup"))).clicked() {
+                if kind == Kind::Workspace && !syncing && !sync_attention && self.model.remote.is_some() && ui.add(Icon::Upload.button(language.text("Upload saved backup"))).clicked() {
                     self.model.send(Command::Push(id));
                     ui.close();
                 }
@@ -865,7 +882,11 @@ impl Desktop {
             });
             if kind == Kind::Workspace {
                 ui.horizontal_wrapped(|ui| {
+                    if self.model.remote.is_some() && ui.button(language.text(if sync_attention { "Resolve sync…" } else { "Two-way sync…" })).clicked() {
+                        self.sync = Some(sync::Flow::new(&mut self.model, id, draft.name.clone(), draft.path.clone()));
+                    }
                     if self.model.remote.is_some()
+                        && !syncing && !sync_attention
                         && ui.add_enabled(!running, Icon::Download.button(language.text("Restore from remote")))
                             .on_hover_text(language.text("Fetch the latest backup and preview changes before writing local files."))
                             .clicked()
@@ -904,6 +925,19 @@ impl Desktop {
                 });
             }
         });
+        if syncing {
+            ui.small(language.text("Selected files are synchronized in both directions."));
+            if running && let Some(deadline) = sync_deadline {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                ui.small(language.format(
+                    "Next sync check in {0} s",
+                    &[&deadline.saturating_sub(now).to_string()],
+                ));
+            }
+        }
         if kind != Kind::Workspace {
             ui.add_space(8.0);
             egui::ScrollArea::vertical().id_salt("repository-details").auto_shrink([false, false]).show(ui, |ui| {
@@ -1467,6 +1501,7 @@ mod tests {
             auto_push: false,
             settings: false,
             restore: None,
+            sync: None,
         }
     }
 

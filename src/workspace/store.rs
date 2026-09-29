@@ -25,7 +25,7 @@ pub struct BackupStore {
     pub(crate) git: Git,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Blob {
     pub oid: String,
     pub executable: bool,
@@ -162,6 +162,7 @@ impl BackupStore {
             .position(|w| w.id == workspace.id)
             .context("Unknown workspace")?;
         let old = &config.workspaces[existing];
+        self.check_sync_edit(old, &workspace, config.remote.as_deref())?;
         let renamed = old.branch != workspace.branch;
         let old_reference = old.reference();
         let old_commit = self.git.reference(&old_reference)?;
@@ -193,6 +194,10 @@ impl BackupStore {
     /// Removes a local binding. Its branch and history remain available.
     pub fn remove(&self, id: Uuid) -> Result<()> {
         let _lock = self.lock()?;
+        ensure!(
+            !self.sync_active(id)?,
+            "Disable two-way sync before removing this binding"
+        );
         let mut config = self.config()?;
         let count = config.workspaces.len();
         config.workspaces.retain(|w| w.id != id);
@@ -205,6 +210,14 @@ impl BackupStore {
     pub fn set_remote(&self, remote: Option<&str>, auto_push: bool) -> Result<()> {
         let _lock = self.lock()?;
         let mut config = self.config()?;
+        if config.remote.as_deref() != remote {
+            for workspace in &config.workspaces {
+                ensure!(
+                    !self.sync_active(workspace.id)?,
+                    "Disable two-way sync before changing the backup remote"
+                );
+            }
+        }
         if let Some(remote) = remote {
             ensure!(
                 !remote.is_empty() && !remote.starts_with('-') && !remote.contains(['\n', '\r']),
@@ -266,8 +279,13 @@ impl BackupStore {
 
     /// Saves selected files, retaining missing files only within the current selection.
     /// A failed upload is returned in the report after the local commit is saved.
+    /// Explicitly enabled sync tasks also fetch and apply changes to selected source files.
     pub fn backup(&self, id: Uuid) -> Result<BackupReport> {
         let _lock = self.lock()?;
+        if self.sync_active(id)? {
+            drop(_lock);
+            return self.synchronize(id);
+        }
         let config = self.config()?;
         let workspace = self.workspace(&config, id)?;
         let mut report = self.snapshot(workspace)?;
@@ -386,8 +404,17 @@ impl BackupStore {
 
     /// Pushes one branch without force, snapshotting new or changed selections first.
     /// Unchanged selections can be uploaded without accessing the source directory.
+    /// Sync tasks instead run the complete fetch, integrate, apply and push cycle.
     pub fn push(&self, id: Uuid) -> Result<()> {
         let _lock = self.lock()?;
+        if self.sync_active(id)? {
+            drop(_lock);
+            let report = self.synchronize(id)?;
+            if let UploadState::Failed { message } = report.upload {
+                anyhow::bail!("{message}");
+            }
+            return Ok(());
+        }
         let config = self.config()?;
         ensure!(config.remote.is_some(), "Configure a backup remote first");
         let workspace = self.workspace(&config, id)?;

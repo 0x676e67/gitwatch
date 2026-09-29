@@ -416,6 +416,10 @@ impl BackupStore {
 
     fn validate_plan(&self, plan: &RestorePlan) -> Result<()> {
         ensure!(
+            !self.sync_active(plan.workspace)?,
+            "Disable two-way sync before restoring backup history"
+        );
+        ensure!(
             timestamp()?.saturating_sub(plan.created) < 24 * 60 * 60,
             "Restore preview expired; create a new preview"
         );
@@ -481,7 +485,7 @@ impl BackupStore {
     }
 }
 
-fn local_contents(path: &std::path::Path) -> Result<Option<Vec<u8>>> {
+pub(super) fn local_contents(path: &std::path::Path) -> Result<Option<Vec<u8>>> {
     match paths::read_file(path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(error)
@@ -495,7 +499,7 @@ fn local_contents(path: &std::path::Path) -> Result<Option<Vec<u8>>> {
     }
 }
 
-fn local_mode(path: &std::path::Path) -> Result<Option<u32>> {
+pub(super) fn local_mode(path: &std::path::Path) -> Result<Option<u32>> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

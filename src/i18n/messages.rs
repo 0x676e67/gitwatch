@@ -1,5 +1,86 @@
 // English source messages are stable keys. Numbered values are inserted verbatim.
 pub(super) const TEXT: &[(&str, &str)] = &[
+    ("Common ancestor", "共同基线"),
+    ("Two-way sync", "双向同步"),
+    ("Two-way sync…", "双向同步…"),
+    ("Resolve sync…", "处理同步问题…"),
+    ("Sync now", "立即同步"),
+    ("Next sync check in {0} s", "{0} 秒后检查远端更新"),
+    (
+        "Selected files are synchronized in both directions.",
+        "选中的文件会在本机与远端之间双向同步。",
+    ),
+    (
+        "File backup only. Source files are not changed automatically.",
+        "当前仅备份文件，不会自动修改源文件。",
+    ),
+    (
+        "Two-way sync can replace and delete selected files. Other files and the source Git repository are kept.",
+        "双向同步可替换和删除选中的文件，其他文件及源项目的 Git 仓库保持不变。",
+    ),
+    ("Integration strategy", "合并策略"),
+    ("Remote check interval, seconds", "远端检查间隔（秒）"),
+    (
+        "Need to discard local changes? Preview the remote version before replacing files.",
+        "需要放弃本地修改？先预览远端版本，再确认替换文件。",
+    ),
+    ("Use remote version…", "使用远端版本…"),
+    ("Undo last sync…", "撤回上次同步…"),
+    ("Recovery copies", "恢复副本"),
+    (
+        "Application was interrupted. Resume the saved operation; new local edits will be protected.",
+        "文件写入曾中断。请继续已保存的操作；新的本地修改会受到保护。",
+    ),
+    (
+        "Review file changes. Nothing has been written yet.",
+        "请核对文件变更，目前尚未写入任何源文件。",
+    ),
+    (
+        "Files already match. Confirm this alignment.",
+        "文件内容已一致，请确认本次对齐。",
+    ),
+    (
+        "Sync paused. Your source files have not been overwritten.",
+        "同步已暂停，源文件尚未被覆盖。",
+    ),
+    (
+        "History needs attention. Continue a resolved integration, cancel to change strategy, or preview the remote version.",
+        "历史分歧需要处理。可继续已解决的合并、取消后更换策略，或预览远端版本。",
+    ),
+    ("Local version", "本地版本"),
+    ("Remote version", "远端版本"),
+    ("Keep local file", "保留本地文件"),
+    ("Keep remote file", "采用远端文件"),
+    ("Edit merged text", "编辑合并内容"),
+    ("I have resolved this file", "我已解决此文件的冲突"),
+    ("Save resolution", "保存解决结果"),
+    (
+        "I reviewed these changes. Keep recovery copies and apply them.",
+        "我已核对变更，保留恢复副本并应用这些变更。",
+    ),
+    ("Confirm sync changes", "确认同步变更"),
+    ("Cancel operation", "取消本次操作"),
+    ("Continue integration", "继续合并"),
+    (
+        "Enter an interval from 10 to 86400 seconds.",
+        "请输入 10 到 86400 秒之间的间隔。",
+    ),
+    ("Save sync settings", "保存同步设置"),
+    ("Preview first sync", "预览首次同步"),
+    ("Disable two-way sync", "关闭双向同步"),
+    ("Delete", "删除"),
+    (
+        "Sync preview is ready. No source files have changed.",
+        "同步预览已准备好，源文件尚未更改。",
+    ),
+    (
+        "Sync files applied. Start automatic runs to keep both computers updated.",
+        "同步文件已写入。启动自动运行可持续获取和上传更新。",
+    ),
+    (
+        "1/2/3: Rebase/Merge/ff-only  i: interval  p: preview  w: save settings\ny: confirm changes  o: remote preview  u: undo preview  d: disable\n↑↓: conflict  v: compare  l/r: keep local/remote  e: edit text\nCtrl+S: save resolution  Enter: continue  c: cancel operation  Esc: close",
+        "1/2/3：Rebase/Merge/仅快进  i：间隔  p：预览  w：保存设置\ny：确认变更  o：预览远端  u：预览撤回  d：关闭同步\n↑↓：冲突文件  v：比较  l/r：保留本地/远端  e：编辑\nCtrl+S：保存解决结果  Enter：继续  c：取消操作  Esc：关闭",
+    ),
     (
         "Cannot read saved backup result: {0}",
         "无法读取备份结果：{0}",
@@ -1315,6 +1396,119 @@ pub(super) const TEXT: &[(&str, &str)] = &[
 
 // Existing core errors carry English text. Only known application templates are translated.
 pub(super) const ERRORS: &[(&str, &str)] = &[
+    (
+        "Synchronization needs attention; resolve or cancel its pending operation",
+        "同步需要处理，请解决或取消待处理操作",
+    ),
+    (
+        "Sync interval must be between 10 and 86400 seconds",
+        "同步间隔必须在 10 到 86400 秒之间",
+    ),
+    (
+        "Disable symbolic-link following before enabling two-way sync",
+        "启用双向同步前，请关闭跟随符号链接",
+    ),
+    (
+        "Finish the interrupted application before creating another preview",
+        "请先完成中断的文件写入，再创建新预览",
+    ),
+    (
+        "Sync is already enabled; change its settings instead",
+        "双向同步已启用，请使用同步设置修改策略",
+    ),
+    (
+        "Resolve or cancel the pending synchronization first",
+        "请先解决或取消待处理的同步",
+    ),
+    (
+        "Preview and confirm first-time alignment before enabling sync",
+        "请先预览并确认首次对齐，再启用同步",
+    ),
+    ("Two-way sync is not enabled", "双向同步尚未启用"),
+    (
+        "Histories diverged; choose Rebase or Merge, or explicitly use the remote version",
+        "本地与远端历史存在分歧，请选择 Rebase 或 Merge，或明确采用远端版本",
+    ),
+    (
+        "Synchronization conflict; source files are unchanged. Resolve the listed files or use the remote version",
+        "同步发生冲突，源文件保持不变。请解决列出的冲突，或选择使用远端版本",
+    ),
+    (
+        "Sync preview changed; review the current preview",
+        "同步预览已变化，请重新核对当前预览",
+    ),
+    (
+        "Finish the interrupted application before cancelling",
+        "请先完成中断的文件写入，再取消操作",
+    ),
+    (
+        "No synchronization recovery is available",
+        "没有可撤回的同步记录",
+    ),
+    (
+        "File changed since synchronization; inspect recovery copies instead: {}",
+        "文件在同步后已有修改，请查看恢复副本：{0}",
+    ),
+    (
+        "Resolve all conflict files before continuing",
+        "请先解决所有文件冲突，再继续",
+    ),
+    (
+        "Two-way sync does not follow symbolic links",
+        "双向同步不跟随符号链接",
+    ),
+    (
+        "Remote selection rules differ; align the task rules before syncing",
+        "远端选择规则与本机不同，请先对齐任务规则",
+    ),
+    (
+        "Remote files fall outside the task selection",
+        "远端文件超出本任务的选择范围",
+    ),
+    (
+        "Sync configuration changed; disable sync and preview alignment again",
+        "同步配置已变化，请关闭同步并重新预览对齐",
+    ),
+    (
+        "Local history changed after preview",
+        "本地历史在预览后已变化",
+    ),
+    (
+        "Source files changed after preview; cancel and preview again",
+        "源文件在预览后已变化，请取消并重新预览",
+    ),
+    (
+        "File changed during synchronization: {}",
+        "文件在同步期间已变化：{0}",
+    ),
+    (
+        "File permissions changed during synchronization: {}",
+        "文件权限在同步期间已变化：{0}",
+    ),
+    (
+        "Source changed while finishing synchronization: {}",
+        "完成同步时发现源文件已有变化：{0}",
+    ),
+    (
+        "Disable sync and cancel pending operations before changing task paths, rules or branch",
+        "修改任务路径、规则或分支前，请关闭同步并取消待处理操作",
+    ),
+    (
+        "Disable two-way sync before removing this binding",
+        "移除此任务绑定前，请先关闭双向同步",
+    ),
+    (
+        "Disable two-way sync before changing the backup remote",
+        "修改备份远端前，请先关闭双向同步",
+    ),
+    (
+        "Disable two-way sync before restoring backup history",
+        "恢复备份历史前，请先关闭双向同步",
+    ),
+    (
+        "Binary or large files must use an explicit local or remote version",
+        "二进制或较大的文件请选择明确的本地版本或远端版本",
+    ),
     (
         "Could not start executable '{}': {}",
         "无法启动程序“{0}”：{1}",

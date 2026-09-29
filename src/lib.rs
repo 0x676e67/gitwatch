@@ -4,7 +4,8 @@
 //! Watch Git repositories and keep selected project files on workspace branches.
 //!
 //! Direct watching operates on an existing repository. Workspace backups read a
-//! project and write only to a separate, application-owned bare repository.
+//! project and save to a separate, application-owned repository. Explicitly enabled
+//! two-way sync also applies selected files, leaving the source Git repository alone.
 
 mod git;
 mod paths;

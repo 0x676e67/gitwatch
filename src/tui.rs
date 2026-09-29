@@ -1,5 +1,7 @@
 //! A terminal interface sharing the desktop task controller and backup store.
 
+mod sync;
+
 use std::{path::PathBuf, time::Duration};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
@@ -39,6 +41,7 @@ struct Screen {
     import_path: Option<String>,
     import_branch: usize,
     auto_push: bool,
+    sync: Option<sync::Flow>,
 }
 
 /// Opens the TUI and restores terminal modes on normal exit or failure.
@@ -80,6 +83,7 @@ pub fn run_with_language(data: Option<PathBuf>, language: Language) -> Result<()
         import_path: None,
         import_branch: 0,
         auto_push: false,
+        sync: None,
     };
     loop {
         if screen.closing && screen.spaces.shutdown_finished(&screen.model) {
@@ -157,7 +161,9 @@ impl Screen {
             .style(Style::default().fg(Color::Cyan)),
             header,
         );
-        if self.space_menu {
+        if let Some(sync) = &self.sync {
+            sync.draw(frame, body, &self.model);
+        } else if self.space_menu {
             let mut text = String::new();
             if let Some(create) = self.space_form {
                 text.push_str(&format!(
@@ -399,18 +405,26 @@ impl Screen {
             });
         let shortcuts = language.text("n: new  e: edit  s: start/stop  b: run once  h: history  p: push  x: remove\nu: backup remote  f: fetch  o: restore remote  F3: language  F5: refresh  q: quit  ↑↓: select");
         frame.render_widget(
-            Paragraph::new(format!("{shortcuts}\n{status}")).style(Style::default().fg(
-                if self.model.error.is_some() {
-                    Color::Red
-                } else {
-                    Color::Gray
-                },
-            )),
+            Paragraph::new(format!(
+                "F6: {}\n{shortcuts}\n{status}",
+                language.text("Two-way sync")
+            ))
+            .style(Style::default().fg(if self.model.error.is_some() {
+                Color::Red
+            } else {
+                Color::Gray
+            })),
             footer,
         );
     }
 
     fn key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> bool {
+        if let Some(sync) = &mut self.sync {
+            if !sync.key(key, modifiers, &mut self.model) {
+                self.sync = None;
+            }
+            return true;
+        }
         if key == KeyCode::F(3) {
             let language = match self.model.language {
                 Language::English => Language::Chinese,
@@ -551,6 +565,14 @@ impl Screen {
         let row = self.model.rows.get(self.selected);
         let id = row.and_then(|r| r.draft.id);
         match key {
+            KeyCode::F(6) => {
+                if let Some(row) = row
+                    && row.draft.kind == Kind::Workspace
+                    && let Some(id) = id
+                {
+                    self.sync = Some(sync::Flow::new(&mut self.model, id));
+                }
+            }
             KeyCode::Char('q') => return false,
             KeyCode::Down => {
                 self.selected = (self.selected + 1).min(self.model.rows.len().saturating_sub(1));
@@ -766,6 +788,7 @@ impl Screen {
     }
 
     fn clear_workspace(&mut self) {
+        self.sync = None;
         self.selected = 0;
         self.draft = None;
         self.remote = None;
@@ -827,6 +850,7 @@ mod tests {
             import_path: None,
             import_branch: 0,
             auto_push: false,
+            sync: None,
         };
         let settle = |screen: &mut Screen| {
             let deadline = std::time::Instant::now() + Duration::from_secs(10);
