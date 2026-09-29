@@ -19,6 +19,7 @@ pub(crate) struct Git {
     dir: PathBuf,
     work_tree: Option<PathBuf>,
     owned: bool,
+    isolated: bool,
 }
 
 pub(crate) struct Output {
@@ -40,6 +41,7 @@ impl Git {
             dir,
             work_tree: None,
             owned: true,
+            isolated: false,
         }
     }
 
@@ -48,11 +50,19 @@ impl Git {
             dir,
             work_tree: Some(work_tree),
             owned: false,
+            isolated: false,
         }
     }
 
     pub(crate) fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    /// Uses a private integration worktree without user filters, hooks or editors.
+    pub(crate) fn isolated(mut self, root: PathBuf) -> Self {
+        self.work_tree = Some(root);
+        self.isolated = true;
+        self
     }
 
     /// Finds an operation that must finish before automatic repository writes.
@@ -121,6 +131,24 @@ impl Git {
         S: AsRef<OsStr>,
     {
         let mut command = base_command();
+        if self.isolated {
+            command
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env(
+                    "GIT_CONFIG_GLOBAL",
+                    if cfg!(windows) { "NUL" } else { "/dev/null" },
+                )
+                .env("GIT_EDITOR", "true")
+                .env("GIT_SEQUENCE_EDITOR", "true");
+            command.args([
+                "-c",
+                "core.autocrlf=false",
+                "-c",
+                "core.attributesFile=",
+                "-c",
+                "rerere.enabled=false",
+            ]);
+        }
         command
             .arg("--literal-pathspecs")
             .arg("--git-dir")

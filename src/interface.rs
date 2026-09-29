@@ -20,7 +20,9 @@ use crate::{
     preferences::Preferences,
     pull::{PullOptions, PullStrategy, PullTask},
     watch::{self, Event, MonitorOptions, Repository, StopToken, WatchOptions},
-    workspace::{BackupStore, HistoryEntry, RemoteWorkspace, RestorePlan, Workspace},
+    workspace::{
+        BackupStore, HistoryEntry, RemoteWorkspace, RestorePlan, SyncOptions, SyncStatus, Workspace,
+    },
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -54,6 +56,7 @@ pub(crate) struct Row {
     pub draft: Draft,
     pub running: bool,
     pub status: Text,
+    pub sync: Option<SyncStatus>,
     #[cfg(feature = "desktop")]
     pub backup: Option<crate::workspace::BackupReport>,
 }
@@ -95,6 +98,15 @@ pub(crate) enum Command {
     PreviewRemote(Uuid),
     Contents(Uuid, String),
     Restore(Uuid),
+    SyncStatus(Uuid),
+    SyncPreview(Uuid, SyncOptions, bool),
+    SyncConfirm(Uuid, Uuid),
+    SyncConfigure(Uuid, SyncOptions, bool),
+    SyncCancel(Uuid),
+    SyncContinue(Uuid),
+    SyncUndo(Uuid),
+    SyncContents(Uuid, String),
+    SyncResolve(Uuid, String, Option<Vec<u8>>),
 }
 
 enum Message {
@@ -112,6 +124,8 @@ enum Message {
     History(Vec<HistoryEntry>),
     Branches(Vec<RemoteWorkspace>),
     Preview(RestorePlan),
+    Sync(SyncStatus),
+    SyncContents(crate::workspace::ConflictContents),
     Text(Text),
     Done(Result<Text>),
 }
@@ -133,6 +147,9 @@ pub(crate) struct Model {
     pub history: Vec<HistoryEntry>,
     pub branches: Vec<RemoteWorkspace>,
     pub plan: Option<RestorePlan>,
+    pub sync: Option<SyncStatus>,
+    sync_target: Option<Uuid>,
+    pub sync_contents: Option<crate::workspace::ConflictContents>,
     pub text: Text,
     pub logs: VecDeque<Text>,
     pub busy: bool,
@@ -159,6 +176,16 @@ impl Kind {
             Self::Watch => "Git watch",
             Self::Pull => "Scheduled pull",
         })
+    }
+}
+
+impl Row {
+    pub(crate) fn mode_label(&self, language: Language) -> &'static str {
+        if self.sync.as_ref().is_some_and(|status| status.enabled()) {
+            language.text("Two-way sync")
+        } else {
+            self.draft.kind.label(language)
+        }
     }
 }
 
@@ -336,6 +363,9 @@ impl Model {
             history: Vec::new(),
             branches: Vec::new(),
             plan: None,
+            sync: None,
+            sync_target: None,
+            sync_contents: None,
             text: Text::default(),
             language,
             logs: VecDeque::new(),
@@ -353,6 +383,9 @@ impl Model {
     pub fn send(&mut self, command: Command) {
         if self.busy || self.stop.is_stopped() {
             return;
+        }
+        if let Command::SyncStatus(id) = &command {
+            self.sync_target = Some(*id);
         }
         self.error = None;
         #[cfg(feature = "desktop")]
@@ -382,6 +415,26 @@ impl Model {
         }
         while let Ok(message) = self.receiver.try_recv() {
             match message {
+                Message::Sync(status) => {
+                    if self.sync_target == Some(status.workspace)
+                        && self.sync.as_ref().is_some_and(|previous| {
+                            previous.token != status.token || previous.conflicts != status.conflicts
+                        })
+                    {
+                        self.sync_contents = None;
+                    }
+                    if let Some(row) = self
+                        .rows
+                        .iter_mut()
+                        .find(|row| row.draft.id == Some(status.workspace))
+                    {
+                        row.sync = Some(status.clone());
+                    }
+                    if self.sync_target == Some(status.workspace) {
+                        self.sync = Some(status);
+                    }
+                }
+                Message::SyncContents(contents) => self.sync_contents = Some(contents),
                 Message::Remote(remote, auto_push) => {
                     self.remote = remote;
                     self.auto_push = auto_push;
@@ -508,6 +561,15 @@ impl Drop for Model {
 impl Command {
     fn description(&self, rows: &[Row]) -> Text {
         let (label, id) = match self {
+            Self::SyncStatus(id)
+            | Self::SyncPreview(id, ..)
+            | Self::SyncConfirm(id, ..)
+            | Self::SyncConfigure(id, ..)
+            | Self::SyncCancel(id)
+            | Self::SyncContinue(id)
+            | Self::SyncUndo(id)
+            | Self::SyncContents(id, ..)
+            | Self::SyncResolve(id, ..) => ("Two-way sync", Some(*id)),
             Self::Start(id) => ("Start automatic runs", Some(*id)),
             Self::Stop(id) => ("Pause automatic runs", Some(*id)),
             Self::Once(id) => ("Run once", Some(*id)),
@@ -539,6 +601,19 @@ impl Command {
 // ===== impl Worker =====
 
 impl Worker {
+    fn stop_for_sync(&mut self, id: Uuid) -> Result<()> {
+        ensure!(
+            self.find(id)?.kind == Kind::Workspace,
+            "Two-way sync requires a file backup task"
+        );
+        self.remember(id, false)?;
+        if let Some((stop, handle)) = self.active.remove(&id) {
+            stop.stop();
+            let _ = handle.join();
+        }
+        self.refresh()
+    }
+
     fn remember(&self, id: Uuid, started: bool) -> Result<()> {
         Preferences::update(self.store.directory(), |preferences| {
             if started {
@@ -643,6 +718,11 @@ impl Worker {
                     (status, None)
                 };
                 Row {
+                    sync: if draft.kind == Kind::Workspace {
+                        draft.id.and_then(|id| self.store.sync_status(id).ok())
+                    } else {
+                        None
+                    },
                     draft,
                     running,
                     status,
@@ -684,6 +764,62 @@ impl Worker {
             return Ok("Stopping tasks…".into());
         }
         match command {
+            Command::SyncStatus(id) => {
+                let _ = self.sender.send(Message::Sync(self.store.sync_status(id)?));
+            }
+            Command::SyncContents(id, path) => {
+                let contents = self.store.sync_conflict_contents(id, &path)?;
+                let _ = self.sender.send(Message::SyncContents(contents));
+            }
+            Command::SyncPreview(id, options, overwrite) => {
+                self.stop_for_sync(id)?;
+                let result = self.store.preview_sync(id, options, overwrite)?;
+                let _ = self.sender.send(Message::Sync(result));
+                self.refresh()?;
+                return Ok("Sync preview is ready. No source files have changed.".into());
+            }
+            Command::SyncConfirm(id, token) => {
+                self.stop_for_sync(id)?;
+                let result = self.store.confirm_sync(id, token)?;
+                let _ = self.sender.send(Message::Sync(result));
+                self.refresh()?;
+                return Ok(
+                    "Sync files applied. Start automatic runs to keep both computers updated."
+                        .into(),
+                );
+            }
+            Command::SyncConfigure(id, options, enabled) => {
+                self.stop_for_sync(id)?;
+                self.store.configure_sync(id, options, enabled)?;
+                let _ = self.sender.send(Message::Sync(self.store.sync_status(id)?));
+                self.refresh()?;
+            }
+            Command::SyncCancel(id) => {
+                self.stop_for_sync(id)?;
+                self.store.cancel_sync(id)?;
+                let _ = self.sender.send(Message::Sync(self.store.sync_status(id)?));
+                self.refresh()?;
+            }
+            Command::SyncContinue(id) => {
+                self.stop_for_sync(id)?;
+                let _ = self
+                    .sender
+                    .send(Message::Sync(self.store.continue_sync(id)?));
+            }
+            Command::SyncUndo(id) => {
+                self.stop_for_sync(id)?;
+                let _ = self
+                    .sender
+                    .send(Message::Sync(self.store.preview_sync_undo(id)?));
+            }
+            Command::SyncResolve(id, path, bytes) => {
+                self.stop_for_sync(id)?;
+                let _ = self.sender.send(Message::Sync(self.store.resolve_sync_file(
+                    id,
+                    &path,
+                    bytes.as_deref(),
+                )?));
+            }
             Command::Language(language) => {
                 language.save(self.store.directory())?;
                 let _ = self.sender.send(Message::Language(language));
@@ -862,6 +998,10 @@ impl Worker {
                         return Ok(());
                     }
                     let report = |event| {
+                        if let Event::Sync(status) = &event {
+                            let _ = sender.send(Message::Sync(status.clone()));
+                            return;
+                        }
                         #[cfg(feature = "desktop")]
                         match &event {
                             Event::Backup(report) => {
@@ -966,7 +1106,11 @@ impl Worker {
                 }
                 let draft = self.find(id)?;
                 let text = match draft.kind {
-                    Kind::Workspace => event_text(Event::Backup(self.store.backup(id)?)),
+                    Kind::Workspace => {
+                        let result = self.store.backup(id);
+                        let _ = self.sender.send(Message::Sync(self.store.sync_status(id)?));
+                        event_text(Event::Backup(result?))
+                    }
                     Kind::Watch => event_text(Event::Repository(
                         Repository::open(&draft.path, None, draft.watch_options())?.commit()?,
                     )),
@@ -1162,6 +1306,7 @@ pub(crate) fn upload_text(upload: &crate::workspace::UploadState) -> Text {
 
 fn event_text(event: Event) -> Text {
     match event {
+        Event::Sync(_) => "Two-way sync".into(),
         Event::Watching(source) => Text::format(
             "Watching: {0}",
             [match source.as_str() {
@@ -1304,6 +1449,46 @@ mod tests {
     }
 
     #[test]
+    fn background_sync_status_cannot_replace_the_open_tasks_conflict() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut model = Model::new(Some(temp.path().join("data")));
+        wait(&mut model);
+        let (sender, receiver) = mpsc::channel();
+        model.receiver = receiver;
+        let focused = Uuid::new_v4();
+        let background = Uuid::new_v4();
+        model.sync_target = Some(focused);
+        let status = |workspace| SyncStatus {
+            workspace,
+            enabled: true,
+            options: SyncOptions::default(),
+            phase: crate::workspace::SyncPhase::Conflict,
+            token: Some(Uuid::new_v4()),
+            entries: Vec::new(),
+            conflicts: vec!["note.md".into()],
+            recovery: None,
+            next_check: None,
+        };
+        sender.send(Message::Sync(status(background))).unwrap();
+        sender.send(Message::Sync(status(focused))).unwrap();
+        model.poll();
+        model.sync_contents = Some(crate::workspace::ConflictContents {
+            local: Some(b"local".to_vec()),
+            remote: Some(b"remote".to_vec()),
+            base: None,
+        });
+        let token = model.sync.as_ref().unwrap().token;
+        sender.send(Message::Sync(status(background))).unwrap();
+        model.poll();
+        assert_eq!(model.sync.as_ref().unwrap().workspace, focused);
+        assert_eq!(model.sync.as_ref().unwrap().token, token);
+        assert_eq!(
+            model.sync_contents.as_ref().unwrap().local().unwrap(),
+            b"local"
+        );
+    }
+
+    #[test]
     fn activity_identifies_tasks_without_translating_their_names() {
         let temp = tempfile::tempdir().unwrap();
         let mut model = Model::new(Some(temp.path().join("data")));
@@ -1324,6 +1509,7 @@ mod tests {
                     },
                     running: true,
                     status: "Running".into(),
+                    sync: None,
                     #[cfg(feature = "desktop")]
                     backup: None,
                 })

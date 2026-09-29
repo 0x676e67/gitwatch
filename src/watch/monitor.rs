@@ -17,7 +17,7 @@ use uuid::Uuid;
 use super::{Repository, WatchReport};
 use crate::{
     Result,
-    workspace::{BackupReport, BackupStore, UploadState},
+    workspace::{BackupReport, BackupStore, SyncPhase, SyncStatus, UploadState},
 };
 
 /// A cooperative stop signal shared by an interface and a running watch task.
@@ -46,6 +46,8 @@ pub struct MonitorOptions {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "event", content = "detail", rename_all = "snake_case")]
 pub enum Event {
+    /// Durable two-way synchronization state and its next remote check.
+    Sync(SyncStatus),
     /// The watch loop is ready. The message identifies its event source.
     Watching(String),
     /// Changes are waiting for the quiet interval.
@@ -159,7 +161,7 @@ pub fn watch_repository(
     run(Job::Repository(Box::new(repository)), options, stop, report)
 }
 
-/// Runs automatic backups for one bound workspace until stopped.
+/// Runs automatic backups or explicitly enabled two-way sync until stopped.
 pub fn watch_workspace(
     store: BackupStore,
     id: Uuid,
@@ -167,7 +169,57 @@ pub fn watch_workspace(
     stop: StopToken,
     report: impl FnMut(Event),
 ) -> Result<()> {
+    if store.sync_status(id)?.enabled() {
+        return run_sync(store, id, stop, report);
+    }
     run(Job::Workspace(store, id), options, stop, report)
+}
+
+fn run_sync(
+    store: BackupStore,
+    id: Uuid,
+    stop: StopToken,
+    mut report: impl FnMut(Event),
+) -> Result<()> {
+    let job = Job::Workspace(store.clone(), id);
+    loop {
+        if stop.is_stopped() {
+            return Ok(());
+        }
+        if job.paused()? {
+            std::thread::sleep(Duration::from_millis(100));
+            continue;
+        }
+        let state = store.sync_status(id)?;
+        report(Event::Sync(state.clone()));
+        ensure!(
+            state.phase() == SyncPhase::Ready,
+            "Synchronization needs attention; resolve or cancel its pending operation"
+        );
+        if !state.enabled() {
+            return Ok(());
+        }
+        let deadline = state.next_check().unwrap_or(0);
+        while !stop.is_stopped()
+            && !stop.take_once()
+            && std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_secs()
+                < deadline
+        {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        if stop.is_stopped() {
+            return Ok(());
+        }
+        if job.paused()? {
+            continue;
+        }
+        match store.synchronize(id) {
+            Ok(result) => report(Event::Backup(result)),
+            Err(error) => report(Event::Error(format!("{error:#}"))),
+        }
+    }
 }
 
 // ===== impl Job =====
