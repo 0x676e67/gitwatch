@@ -19,7 +19,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-dirs = "6"
+dirs = "7"
 dunce = "1"
 fs2 = "0.4"
 globset = "0.4"
