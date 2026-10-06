@@ -39,4 +39,4 @@ tempfile = "3"
 uuid = { version = "1", features = ["v4", "serde"] }
 eframe = { version = "0.36", default-features = false, features = ["default_fonts", "glow", "links", "x11", "wayland"] }
 rfd = "0.17"
-tray-icon = { version = "0.25.1", default-features = false, features = ["ksni"] }
+tray-icon = { version = "0.26.0", default-features = false, features = ["ksni"] }
