@@ -27,7 +27,7 @@ notify = "8.1"
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 semver = "1"
 self-replace = "1.5"
 ureq = { version = "3.4", default-features = false, features = ["rustls"] }
